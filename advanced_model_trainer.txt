@@ -1,0 +1,486 @@
+"""
+고급 모델 최적화 및 교차 검증
+"""
+
+from model_trainer import ModelTrainer
+import numpy as np
+from sklearn.model_selection import GridSearchCV, cross_val_score, KFold
+from sklearn.metrics import make_scorer, mean_squared_error
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+class AdvancedModelTrainer(ModelTrainer):
+    """
+    고급 모델 최적화 기능을 포함한 Trainer
+    """
+
+    def cross_validate_models(self, cv: int = 5):
+        """
+        교차 검증으로 모델 성능 평가
+        
+        Parameters:
+        -----------
+        cv : int
+            교차 검증 폴드 수
+        """
+        self.logger.info("="*80)
+        self.logger.info(f"{cv}-Fold 교차 검증")
+        self.logger.info("="*80)
+        
+        cv_results = {}
+        
+        for model_name in self.models.keys():
+            self.logger.info(f"\n{model_name} 교차 검증 중...")
+            
+            model_scores = []
+            
+            # 각 출력 차원별로 교차 검증
+            for i, output_name in enumerate(self.output_features):
+                model = self.models[model_name][i]
+                
+                # 음수 MSE 스코어 (높을수록 좋음)
+                scores = cross_val_score(
+                    model,
+                    self.X_train_scaled,
+                    self.Y_train[:, i],
+                    cv=cv,
+                    scoring='neg_mean_squared_error',
+                    n_jobs=-1
+                )
+                
+                # RMSE로 변환
+                rmse_scores = np.sqrt(-scores)
+                
+                self.logger.info(f"  {output_name}:")
+                self.logger.info(f"    평균 RMSE: {rmse_scores.mean():.6f} (±{rmse_scores.std():.6f})")
+                
+                model_scores.append(rmse_scores)
+            
+            # 전체 평균
+            all_scores = np.concatenate(model_scores)
+            cv_results[model_name] = {
+                'mean_rmse': all_scores.mean(),
+                'std_rmse': all_scores.std(),
+                'scores_by_output': model_scores
+            }
+            
+            self.logger.info(f"\n  전체 평균 RMSE: {all_scores.mean():.6f} (±{all_scores.std():.6f})")
+        
+        self.logger.info("\n" + "="*80)
+        
+        # 시각화
+        self._plot_cv_results(cv_results)
+        
+        return cv_results
+
+    def _plot_cv_results(self, cv_results: dict):
+        """교차 검증 결과 시각화"""
+        fig, ax = plt.subplots(figsize=(10, 6))
+        
+        model_names = list(cv_results.keys())
+        means = [cv_results[name]['mean_rmse'] for name in model_names]
+        stds = [cv_results[name]['std_rmse'] for name in model_names]
+        
+        x_pos = np.arange(len(model_names))
+        
+        ax.bar(x_pos, means, yerr=stds, alpha=0.7, capsize=10,
+               color='steelblue', edgecolor='black', linewidth=1.5)
+        
+        ax.set_xlabel('모델', fontsize=12, fontweight='bold')
+        ax.set_ylabel('교차 검증 RMSE', fontsize=12, fontweight='bold')
+        ax.set_title('모델별 교차 검증 성능 비교', fontsize=14, fontweight='bold')
+        ax.set_xticks(x_pos)
+        ax.set_xticklabels(model_names, rotation=45, ha='right')
+        ax.grid(True, alpha=0.3, axis='y')
+        
+        plt.tight_layout()
+        
+        output_file = f'{self.output_dir}/cross_validation_results.png'
+        plt.savefig(output_file, dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        self.logger.info(f"✓ 교차 검증 시각화 저장: {output_file}")
+
+    def hyperparameter_tuning_xgboost(self):
+        """XGBoost 하이퍼파라미터 튜닝"""
+        try:
+            import xgboost as xgb
+        except ImportError:
+            self.logger.warning("XGBoost가 설치되지 않았습니다.")
+            return None
+        
+        self.logger.info("="*80)
+        self.logger.info("XGBoost 하이퍼파라미터 튜닝")
+        self.logger.info("="*80)
+        
+        # 파라미터 그리드
+        param_grid = {
+            'n_estimators': [50, 100, 200],
+            'max_depth': [3, 6, 9],
+            'learning_rate': [0.01, 0.1, 0.3],
+            'subsample': [0.8, 1.0]
+        }
+        
+        self.logger.info("파라미터 그리드:")
+        for param, values in param_grid.items():
+            self.logger.info(f"  {param}: {values}")
+        
+        best_params_list = []
+        
+        # 첫 번째 출력 차원에 대해 튜닝
+        for i, output_name in enumerate(self.output_features[:1]):  # 시간 절약을 위해 첫 번째만
+            self.logger.info(f"\n{output_name} 튜닝 중...")
+            
+            base_model = xgb.XGBRegressor(random_state=self.random_state)
+            
+            grid_search = GridSearchCV(
+                base_model,
+                param_grid,
+                cv=3,
+                scoring='neg_mean_squared_error',
+                n_jobs=-1,
+                verbose=1
+            )
+            
+            grid_search.fit(self.X_train_scaled, self.Y_train[:, i])
+            
+            self.logger.info(f"\n최적 파라미터: {grid_search.best_params_}")
+            self.logger.info(f"최적 RMSE: {np.sqrt(-grid_search.best_score_):.6f}")
+            
+            best_params_list.append(grid_search.best_params_)
+        
+        self.logger.info("\n" + "="*80)
+        
+        return best_params_list
+
+    def hyperparameter_tuning_gpr(self):
+        """GPR 커널 파라미터 튜닝"""
+        from sklearn.gaussian_process import GaussianProcessRegressor
+        from sklearn.gaussian_process.kernels import RBF, ConstantKernel, Matern
+        
+        self.logger.info("="*80)
+        self.logger.info("GPR 커널 파라미터 튜닝")
+        self.logger.info("="*80)
+        
+        # 다양한 커널 시도
+        kernels = {
+            'RBF_0.1': ConstantKernel(1.0) * RBF(length_scale=0.1),
+            'RBF_1.0': ConstantKernel(1.0) * RBF(length_scale=1.0),
+            'RBF_10.0': ConstantKernel(1.0) * RBF(length_scale=10.0),
+            'Matern_1.5': ConstantKernel(1.0) * Matern(length_scale=1.0, nu=1.5),
+            'Matern_2.5': ConstantKernel(1.0) * Matern(length_scale=1.0, nu=2.5)
+        }
+        
+        results = []
+        
+        # 첫 번째 출력 차원에 대해 테스트
+        for kernel_name, kernel in kernels.items():
+            self.logger.info(f"\n{kernel_name} 테스트 중...")
+            
+            gpr = GaussianProcessRegressor(
+                kernel=kernel,
+                alpha=1e-6,
+                random_state=self.random_state
+            )
+            
+            # 교차 검증
+            scores = cross_val_score(
+                gpr,
+                self.X_train_scaled,
+                self.Y_train[:, 0],
+                cv=3,
+                scoring='neg_mean_squared_error',
+                n_jobs=-1
+            )
+            
+            rmse = np.sqrt(-scores.mean())
+            
+            self.logger.info(f"  평균 RMSE: {rmse:.6f}")
+            
+            results.append({
+                'kernel': kernel_name,
+                'rmse': rmse
+            })
+        
+        # 결과 정리
+        df_results = pd.DataFrame(results).sort_values('rmse')
+        
+        self.logger.info("\n커널 비교 결과:")
+        self.logger.info(df_results.to_string(index=False))
+        
+        self.logger.info("\n" + "="*80)
+        
+        return df_results
+
+    def analyze_learning_curves(self, model_name: str = 'XGBoost'):
+        """학습 곡선 분석"""
+        from sklearn.model_selection import learning_curve
+        
+        self.logger.info("="*80)
+        self.logger.info(f"{model_name} 학습 곡선 분석")
+        self.logger.info("="*80)
+        
+        if model_name not in self.models:
+            self.logger.error(f"{model_name} 모델을 찾을 수 없습니다.")
+            return
+        
+        # 첫 번째 출력 차원의 모델 사용
+        model = self.models[model_name][0]
+        
+        # 학습 곡선 계산
+        train_sizes = np.linspace(0.1, 1.0, 10)
+        
+        train_sizes_abs, train_scores, val_scores = learning_curve(
+            model,
+            self.X_train_scaled,
+            self.Y_train[:, 0],
+            train_sizes=train_sizes,
+            cv=5,
+            scoring='neg_mean_squared_error',
+            n_jobs=-1
+        )
+        
+        # RMSE로 변환
+        train_rmse = np.sqrt(-train_scores)
+        val_rmse = np.sqrt(-val_scores)
+        
+        # 시각화
+        fig, ax = plt.subplots(figsize=(10, 6))
+        
+        ax.plot(train_sizes_abs, train_rmse.mean(axis=1), 
+               'o-', label='학습 데이터', linewidth=2, markersize=8)
+        ax.fill_between(train_sizes_abs, 
+                        train_rmse.mean(axis=1) - train_rmse.std(axis=1),
+                        train_rmse.mean(axis=1) + train_rmse.std(axis=1),
+                        alpha=0.2)
+        
+        ax.plot(train_sizes_abs, val_rmse.mean(axis=1),
+               'o-', label='검증 데이터', linewidth=2, markersize=8)
+        ax.fill_between(train_sizes_abs,
+                        val_rmse.mean(axis=1) - val_rmse.std(axis=1),
+                        val_rmse.mean(axis=1) + val_rmse.std(axis=1),
+                        alpha=0.2)
+        
+        ax.set_xlabel('학습 샘플 수', fontsize=12, fontweight='bold')
+        ax.set_ylabel('RMSE', fontsize=12, fontweight='bold')
+        ax.set_title(f'{model_name} 학습 곡선', fontsize=14, fontweight='bold')
+        ax.legend(fontsize=11)
+        ax.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        
+        output_file = f'{self.output_dir}/learning_curve_{model_name}.png'
+        plt.savefig(output_file, dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        self.logger.info(f"✓ 학습 곡선 저장: {output_file}")
+        self.logger.info("="*80)
+
+    def analyze_prediction_intervals(self):
+        """GPR 예측 구간 분석"""
+        if 'GPR' not in self.models:
+            self.logger.warning("GPR 모델이 없습니다.")
+            return
+        
+        self.logger.info("="*80)
+        self.logger.info("GPR 예측 구간 분석")
+        self.logger.info("="*80)
+        
+        fig, axes = plt.subplots(1, len(self.output_features), 
+                                figsize=(6*len(self.output_features), 5))
+        
+        if len(self.output_features) == 1:
+            axes = [axes]
+        
+        for i, output_name in enumerate(self.output_features):
+            gpr = self.models['GPR'][i]
+            
+            # 예측 및 표준편차
+            y_pred, y_std = gpr.predict(self.X_test_scaled, return_std=True)
+            
+            # 정렬 (시각화를 위해)
+            indices = np.argsort(self.Y_test[:, i])
+            y_test_sorted = self.Y_test[indices, i]
+            y_pred_sorted = y_pred[indices]
+            y_std_sorted = y_std[indices]
+            
+            ax = axes[i]
+            
+            # 실제값
+            ax.plot(y_test_sorted, 'o', label='실제값', alpha=0.6, markersize=5)
+            
+            # 예측값
+            ax.plot(y_pred_sorted, 'r-', label='예측값', linewidth=2)
+            
+            # 95% 신뢰구간
+            ax.fill_between(
+                range(len(y_pred_sorted)),
+                y_pred_sorted - 1.96*y_std_sorted,
+                y_pred_sorted + 1.96*y_std_sorted,
+                alpha=0.3,
+                label='95% 신뢰구간'
+            )
+            
+            ax.set_xlabel('샘플 (정렬됨)', fontsize=10)
+            ax.set_ylabel('값', fontsize=10)
+            ax.set_title(f'{output_name}\n평균 불확실성: {y_std.mean():.4f}',
+                        fontsize=11, fontweight='bold')
+            ax.legend(fontsize=9)
+            ax.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        
+        output_file = f'{self.output_dir}/prediction_intervals.png'
+        plt.savefig(output_file, dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        self.logger.info(f"✓ 예측 구간 시각화 저장: {output_file}")
+        self.logger.info("="*80)
+
+    def analyze_overfitting(self):
+        """과적합 분석"""
+        self.logger.info("="*80)
+        self.logger.info("과적합 분석")
+        self.logger.info("="*80)
+        
+        results = []
+        
+        for model_name in self.models.keys():
+            y_pred = self.predictions[model_name]
+            
+            # 테스트 데이터 성능
+            test_rmse = np.sqrt(mean_squared_error(self.Y_test, y_pred))
+            test_r2 = self.metrics[model_name]['overall']['r2']
+            
+            # 학습 데이터 성능
+            if model_name == 'GPR':
+                train_pred = np.column_stack([
+                    model.predict(self.X_train_scaled)
+                    for model in self.models[model_name]
+                ])
+            else:
+                train_pred = np.column_stack([
+                    model.predict(self.X_train_scaled)
+                    for model in self.models[model_name]
+                ])
+            
+            train_rmse = np.sqrt(mean_squared_error(self.Y_train, train_pred))
+            
+            # 과적합 지표
+            overfitting_ratio = test_rmse / train_rmse
+            
+            self.logger.info(f"\n{model_name}:")
+            self.logger.info(f"  학습 RMSE: {train_rmse:.6f}")
+            self.logger.info(f"  테스트 RMSE: {test_rmse:.6f}")
+            self.logger.info(f"  과적합 비율: {overfitting_ratio:.3f}")
+            
+            if overfitting_ratio > 1.5:
+                self.logger.warning(f"  ⚠ 과적합 위험!")
+            elif overfitting_ratio < 0.9:
+                self.logger.warning(f"  ⚠ 과소적합 위험!")
+            else:
+                self.logger.info(f"  ✓ 적절한 적합")
+            
+            results.append({
+                'model': model_name,
+                'train_rmse': train_rmse,
+                'test_rmse': test_rmse,
+                'overfitting_ratio': overfitting_ratio
+            })
+        
+        # 시각화
+        df_results = pd.DataFrame(results)
+        
+        fig, ax = plt.subplots(figsize=(10, 6))
+        
+        x = np.arange(len(df_results))
+        width = 0.35
+        
+        ax.bar(x - width/2, df_results['train_rmse'], width, 
+              label='학습 RMSE', alpha=0.8)
+        ax.bar(x + width/2, df_results['test_rmse'], width,
+              label='테스트 RMSE', alpha=0.8)
+        
+        ax.set_xlabel('모델', fontsize=12, fontweight='bold')
+        ax.set_ylabel('RMSE', fontsize=12, fontweight='bold')
+        ax.set_title('학습 vs 테스트 성능 비교\n(과적합 분석)', 
+                    fontsize=14, fontweight='bold')
+        ax.set_xticks(x)
+        ax.set_xticklabels(df_results['model'], rotation=45, ha='right')
+        ax.legend(fontsize=11)
+        ax.grid(True, alpha=0.3, axis='y')
+        
+        plt.tight_layout()
+        
+        output_file = f'{self.output_dir}/overfitting_analysis.png'
+        plt.savefig(output_file, dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        self.logger.info(f"\n✓ 과적합 분석 저장: {output_file}")
+        self.logger.info("="*80)
+        
+        return df_results
+
+def main():
+    """고급 분석 실행"""
+    
+    print("="*80)
+    print("고급 모델 분석 및 최적화")
+    print("="*80)
+    
+    # 데이터 파일
+    data_file = './outputs/model_training_data.xlsx'
+    
+    # AdvancedModelTrainer 초기화
+    trainer = AdvancedModelTrainer(
+        data_file=data_file,
+        output_dir='./outputs/models',
+        random_state=42
+    )
+    
+    # 데이터 로드
+    print("\n[Step 1] 데이터 로드")
+    trainer.load_and_prepare_data(test_size=0.3, scale_features=True)
+    
+    # 기본 모델 학습
+    print("\n[Step 2] 기본 모델 학습")
+    trainer.train_gpr()
+    trainer.train_xgboost()
+    trainer.train_catboost()
+    trainer.train_random_forest()
+    
+    # 평가
+    print("\n[Step 3] 모델 평가")
+    trainer.evaluate_models()
+    
+    # 교차 검증
+    print("\n[Step 4] 교차 검증")
+    cv_results = trainer.cross_validate_models(cv=5)
+    
+    # 하이퍼파라미터 튜닝
+    print("\n[Step 5] 하이퍼파라미터 튜닝")
+    print("  [5-1] XGBoost 튜닝...")
+    best_xgb_params = trainer.hyperparameter_tuning_xgboost()
+    
+    print("  [5-2] GPR 커널 튜닝...")
+    best_gpr_kernel = trainer.hyperparameter_tuning_gpr()
+    
+    # 학습 곡선
+    print("\n[Step 6] 학습 곡선 분석")
+    trainer.analyze_learning_curves('XGBoost')
+    
+    # 예측 구간
+    print("\n[Step 7] 예측 구간 분석")
+    trainer.analyze_prediction_intervals()
+    
+    # 과적합 분석
+    print("\n[Step 8] 과적합 분석")
+    overfitting_results = trainer.analyze_overfitting()
+    
+    print("\n" + "="*80)
+    print("고급 분석 완료!")
+    print("="*80)
+
+if __name__ == "__main__":
+    main()

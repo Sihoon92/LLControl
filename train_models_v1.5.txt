@@ -1,0 +1,230 @@
+"""
+모델 학습 및 평가 실행 스크립트 (다변량 예측)
+"""
+from model_trainer_v2 import ModelTrainer
+import os
+
+def main():
+    """메인 실행 함수"""
+    print("="*80)
+    print("코팅 L/L 제어 모델 학습 및 평가 (다변량 예측)")
+    print("="*80)
+    print()
+
+    # 데이터 파일 경로
+    data_file = './outputs/model_training_data.xlsx'
+
+    if not os.path.exists(data_file):
+        print(f"ERROR: 데이터 파일을 찾을 수 없습니다: {data_file}")
+        print("먼저 전처리 파이프라인을 실행하여 model_training_data.xlsx를 생성하세요.")
+        return
+
+    # ModelTrainer 초기화
+    trainer = ModelTrainer(
+        data_file=data_file,
+        output_dir='./outputs/models_v2',
+        random_state=42
+    )
+
+    # ======================================================================
+    # Step 1: 데이터 로드 및 전처리
+    # ======================================================================
+    print("\n[Step 1] 데이터 로드 및 전처리")
+    trainer.load_and_prepare_data(
+        test_size=0.3,
+        scale_features=True
+    )
+
+    # ======================================================================
+    # Step 2: 모델 학습 - 기존 방식 (Independent)
+    # ======================================================================
+    print("\n" + "="*80)
+    print("[Step 2] 기존 방식 (Independent) 모델 학습")
+    print("="*80)
+
+    # 2-1. Gaussian Process Regression
+    print("\n[2-1] Gaussian Process Regression (Independent)...")
+    trainer.train_gpr(
+        kernel_type='rbf',
+        length_scale=1.0,
+        alpha=1e-6
+    )
+
+    # 2-2. XGBoost (Independent)
+    print("\n[2-2] XGBoost (Independent)...")
+    trainer.train_xgboost(
+        n_estimators=100,
+        max_depth=6,
+        learning_rate=0.1,
+        method='independent'
+    )
+
+    # 2-3. Random Forest (Independent)
+    print("\n[2-3] Random Forest (Independent)...")
+    trainer.train_random_forest(
+        n_estimators=100,
+        max_depth=10,
+        method='independent'
+    )
+
+    # 2-4. sklearn MLP (Independent)
+    print("\n[2-4] sklearn MLP (Independent)...")
+    trainer.train_mlp_sklearn(
+        hidden_layer_sizes=(100, 50),
+        max_iter=1000
+    )
+
+    # ======================================================================
+    # Step 3: 모델 학습 - RegressorChain 방식
+    # ======================================================================
+    print("\n" + "="*80)
+    print("[Step 3] RegressorChain 방식 모델 학습")
+    print("="*80)
+
+    # 3-1. XGBoost (Chain)
+    print("\n[3-1] XGBoost (Chain)...")
+    trainer.train_xgboost(
+        n_estimators=100,
+        max_depth=6,
+        learning_rate=0.1,
+        method='chain'
+    )
+
+    # 3-2. Random Forest (Chain)
+    print("\n[3-2] Random Forest (Chain)...")
+    trainer.train_random_forest(
+        n_estimators=100,
+        max_depth=10,
+        method='chain'
+    )
+
+    # 3-3. CatBoost (Chain)
+    print("\n[3-3] CatBoost (Chain)...")
+    trainer.train_catboost(
+        iterations=500,
+        depth=6,
+        learning_rate=0.1,
+        method='chain'
+    )
+
+    # ======================================================================
+    # Step 4: 모델 학습 - CatBoost MultiRMSE
+    # ======================================================================
+    print("\n" + "="*80)
+    print("[Step 4] CatBoost MultiRMSE (Native Multi-Output)")
+    print("="*80)
+
+    print("\n[4-1] CatBoost (MultiRMSE)...")
+    trainer.train_catboost(
+        iterations=500,
+        depth=6,
+        learning_rate=0.1,
+        method='multi'
+    )
+
+    # ======================================================================
+    # Step 5: 모델 학습 - Constrained MLP (PyTorch)
+    # ======================================================================
+    print("\n" + "="*80)
+    print("[Step 5] Constrained MLP (PyTorch) - 물리적 제약 조건 포함")
+    print("="*80)
+
+    print("\n[5-1] MLP with Physical Constraints...")
+    trainer.train_mlp_constrained(
+        hidden_dims=[128, 64],
+        epochs=200,
+        batch_size=32,
+        learning_rate=0.001,
+        sum_weight=1.0, 
+        variance_weight=0.1  # 분산 제약 가중치
+    )
+
+    # ======================================================================
+    # Step 6: 모델 평가
+    # ======================================================================
+    print("\n" + "="*80)
+    print("[Step 6] 모델 평가")
+    print("="*80)
+    trainer.evaluate_models()
+
+    # ======================================================================
+    # Step 7: 모델 성능 비교
+    # ======================================================================
+    print("\n" + "="*80)
+    print("[Step 7] 모델 성능 비교")
+    print("="*80)
+    comparison_df = trainer.compare_models()
+
+    # ======================================================================
+    # Step 8: 시각화
+    # ======================================================================
+    print("\n" + "="*80)
+    print("[Step 8] 결과 시각화")
+    print("="*80)
+
+    print("  [8-1] 예측 결과 산점도...")
+    trainer.plot_predictions()
+
+    print("  [8-2] 예측값 합 분포...")
+    trainer.plot_sum_distribution()
+
+    # ======================================================================
+    # Step 9: 예측 결과 저장
+    # ======================================================================
+    print("\n" + "="*80)
+    print("[Step 9] 예측 결과 저장")
+    print("="*80)
+    trainer.save_predictions()
+
+    # ======================================================================
+    # Step 10: 종합 리포트 생성
+    # ======================================================================
+    print("\n" + "="*80)
+    print("[Step 10] 종합 리포트 생성")
+    print("="*80)
+    report = trainer.generate_report()
+
+    # ======================================================================
+    # 완료 - 결과 요약
+    # ======================================================================
+    print("\n" + "="*80)
+    print("모든 작업 완료!")
+    print("="*80)
+    print(f"\n결과 저장 위치: {trainer.output_dir}")
+    print("\n생성된 파일:")
+    print("  - model_comparison.csv: 모델 성능 비교")
+    print("  - predictions_scatter.png: 예측 결과 산점도")
+    print("  - sum_distribution.png: 예측값 합 분포")
+    print("  - *_predictions.csv: 각 모델의 상세 예측 결과")
+    print("  - training_report.txt: 종합 리포트")
+    print("  - training.log: 학습 로그")
+    print()
+
+    # 최고 성능 모델 출력
+    print("="*80)
+    print("최고 성능 모델 (RMSE 기준):")
+    print("="*80)
+    best_idx = comparison_df['RMSE'].idxmin()
+    print(comparison_df.iloc[best_idx].to_string())
+
+    print("\n" + "="*80)
+    print("물리적 제약 준수도 (합 제약, 절대값 기준):")
+    print("="*80)
+    best_constraint_idx = comparison_df['합_평균'].abs().idxmin()
+    print(comparison_df.iloc[best_constraint_idx].to_string())
+
+    print("\n" + "="*80)
+    print("\n추천 모델:")
+    print("-"*80)
+    print("1. 정확도 우선: " + comparison_df.iloc[best_idx]['모델'])
+    print("2. 물리적 제약 준수 우선: " + comparison_df.iloc[best_constraint_idx]['모델'])
+    print("3. 균형: CatBoost_multi 또는 MLP_constrained 권장")
+    print("\n설명:")
+    print("- Independent: 각 출력을 독립적으로 예측 (가장 빠르지만 상관관계 무시)")
+    print("- Chain: 순차적 예측으로 출력 간 종속성 학습")
+    print("- MultiRMSE: CatBoost 네이티브 다변량 회귀 (트리 기반 + 상관관계)")
+    print("- Constrained: PyTorch MLP + 물리적 제약 손실 함수 (가장 강력)")
+    print("\n" + "="*80)
+
+if __name__ == "__main__":
+    main()
