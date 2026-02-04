@@ -1,0 +1,71 @@
+"""
+전처리 파이프라인 실행 스크립트
+"""
+
+from pipeline import CoatingPreprocessPipeline
+from config import PreprocessConfig
+import logging
+
+
+def main():
+    """메인 실행 함수"""
+    
+    # 설정 초기화
+    config = PreprocessConfig()
+    
+    # 파이프라인 초기화 (로거는 자동으로 생성됨)
+    pipeline = CoatingPreprocessPipeline(config)
+    
+    pipeline.logger.info("코팅 L/L 전처리 파이프라인을 시작합니다.")
+    
+    # ===================================================================
+    # 옵션 1: 단일 파일 모드
+    # ===================================================================
+    pipeline.run_single_file(
+        apc_file='data/raw/apc_data.xlsx',
+        densitometer_file='data/raw/densitometer_data.csv',
+        llspec_file='data/raw/llspec_data.xlsx',
+        visualize=True
+    )
+    
+    # ===================================================================
+    # 옵션 2: 다중 파일 모드
+    # ===================================================================
+    # pipeline.run_multiple_files(
+    #     apc_files=[
+    #         'data/raw/apc_data_1.xlsx',
+    #         'data/raw/apc_data_2.xlsx',
+    #         'data/raw/apc_data_3.xlsx'
+    #     ],
+    #     densitometer_files=[
+    #         'data/raw/densitometer_1.csv',
+    #         'data/raw/densitometer_2.csv',
+    #         'data/raw/densitometer_3.csv'
+    #     ],
+    #     llspec_files=[
+    #         'data/raw/llspec_1.xlsx',
+    #         'data/raw/llspec_2.xlsx'
+    #     ],
+    #     visualize=True
+    # )
+    
+    # ===================================================================
+    # 옵션 3: 폴더 자동 검색 모드
+    # ===================================================================
+    # pipeline.run_from_folder(
+    #     folder_path='data/raw/',
+    #     apc_pattern='apc*.xlsx',
+    #     densitometer_pattern='densitometer*.csv',
+    #     llspec_pattern='llspec*.xlsx',
+    #     visualize=True
+    # )
+    
+    # 결과 확인
+    results = pipeline.get_results()
+    
+    pipeline.logger.info("전처리 완료!")
+    pipeline.logger.info(f"결과 항목: {list(results.keys())}")
+
+
+if __name__ == "__main__":
+    main()

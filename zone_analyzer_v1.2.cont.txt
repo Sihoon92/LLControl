@@ -1,0 +1,147 @@
+    def visualize_group_zone_analysis(
+        self,
+        result: Dict,
+        output_dir: Optional[str] = None
+    ):
+        """
+        Group별 Zone 분석 결과 시각화
+        
+        Parameters:
+        -----------
+        result : Dict
+            analyze_group_zone_distribution 결과
+        output_dir : str, optional
+            저장 디렉토리
+        """
+        if result is None or not result['zone_results']:
+            return
+        
+        if output_dir is None:
+            output_dir = os.path.join(self.config.PLOT_DIR, 'group_zone_analysis')
+        
+        os.makedirs(output_dir, exist_ok=True)
+        
+        group_id = result['group_id']
+        ucl = result['ucl']
+        lcl = result['lcl']
+        n_divisions = result['n_divisions']
+        division_edges = result['division_edges']
+        zone_results = result['zone_results']
+        
+        # 1. Zone별 Before/After 평균 비교
+        fig, ax = plt.subplots(figsize=(14, 6))
+        
+        zones = [r['zone_id'] for r in zone_results]
+        before_means = [r['before_mean'] for r in zone_results]
+        after_means = [r['after_mean'] for r in zone_results]
+        
+        x = np.arange(len(zones))
+        width = 0.35
+        
+        bars1 = ax.bar(x - width/2, before_means, width, label='Before', color='steelblue', alpha=0.8)
+        bars2 = ax.bar(x + width/2, after_means, width, label='After', color='coral', alpha=0.8)
+        
+        # UCL/LCL 라인
+        ax.axhline(ucl, color='red', linestyle='--', linewidth=2, label=f'UCL: {ucl:.2f}')
+        ax.axhline(lcl, color='red', linestyle='--', linewidth=2, label=f'LCL: {lcl:.2f}')
+        
+        ax.set_xlabel('Zone', fontsize=12)
+        ax.set_ylabel('평균 Loading Level (g/m²)', fontsize=12)
+        ax.set_title(f'Group {group_id} - Zone별 Before/After 평균 비교', fontsize=14, fontweight='bold')
+        ax.set_xticks(x)
+        ax.set_xticklabels([f'Zone {z}' for z in zones])
+        ax.legend(fontsize=10)
+        ax.grid(True, alpha=0.3, axis='y')
+        
+        plt.tight_layout()
+        plot_path = f'{output_dir}/group_{group_id}_zone_means.png'
+        plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+        plt.close()
+        self.logger.debug(f"  ✓ 시각화 저장: {plot_path}")
+        
+        # 2. Zone별 구간 분포 히트맵
+        n_zones = len(zone_results)
+        
+        # Before 히트맵
+        before_heatmap = np.zeros((n_zones, n_divisions))
+        for i, r in enumerate(zone_results):
+            for j in range(n_divisions):
+                before_heatmap[i, j] = r[f'div_{j+1}_before_ratio']
+        
+        fig, axes = plt.subplots(1, 2, figsize=(18, 6))
+        
+        # Before
+        im1 = axes[0].imshow(before_heatmap, aspect='auto', cmap='YlOrRd')
+        axes[0].set_xlabel('구간', fontsize=12)
+        axes[0].set_ylabel('Zone', fontsize=12)
+        axes[0].set_title(f'Group {group_id} - Before 분포', fontsize=14, fontweight='bold')
+        axes[0].set_xticks(np.arange(n_divisions))
+        axes[0].set_xticklabels([f'구간{i+1}' for i in range(n_divisions)])
+        axes[0].set_yticks(np.arange(n_zones))
+        axes[0].set_yticklabels([f'Zone {r["zone_id"]}' for r in zone_results])
+        
+        for i in range(n_zones):
+            for j in range(n_divisions):
+                text = axes[0].text(j, i, f'{before_heatmap[i, j]:.1%}',
+                                   ha="center", va="center", color="black", fontsize=9)
+        
+        plt.colorbar(im1, ax=axes[0], label='비율')
+        
+        # After 히트맵
+        after_heatmap = np.zeros((n_zones, n_divisions))
+        for i, r in enumerate(zone_results):
+            for j in range(n_divisions):
+                after_heatmap[i, j] = r[f'div_{j+1}_after_ratio']
+        
+        im2 = axes[1].imshow(after_heatmap, aspect='auto', cmap='YlOrRd')
+        axes[1].set_xlabel('구간', fontsize=12)
+        axes[1].set_ylabel('Zone', fontsize=12)
+        axes[1].set_title(f'Group {group_id} - After 분포', fontsize=14, fontweight='bold')
+        axes[1].set_xticks(np.arange(n_divisions))
+        axes[1].set_xticklabels([f'구간{i+1}' for i in range(n_divisions)])
+        axes[1].set_yticks(np.arange(n_zones))
+        axes[1].set_yticklabels([f'Zone {r["zone_id"]}' for r in zone_results])
+        
+        for i in range(n_zones):
+            for j in range(n_divisions):
+                text = axes[1].text(j, i, f'{after_heatmap[i, j]:.1%}',
+                                   ha="center", va="center", color="black", fontsize=9)
+        
+        plt.colorbar(im2, ax=axes[1], label='비율')
+        
+        plt.tight_layout()
+        plot_path = f'{output_dir}/group_{group_id}_distribution_heatmap.png'
+        plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+        plt.close()
+        self.logger.debug(f"  ✓ 시각화 저장: {plot_path}")
+        
+        # 3. 변화율 히트맵
+        change_heatmap = after_heatmap - before_heatmap
+        
+        fig, ax = plt.subplots(figsize=(10, 8))
+        
+        im = ax.imshow(change_heatmap, aspect='auto', cmap='RdBu_r', vmin=-0.5, vmax=0.5)
+        ax.set_xlabel('구간', fontsize=12)
+        ax.set_ylabel('Zone', fontsize=12)
+        ax.set_title(f'Group {group_id} - 분포 변화율 (After - Before)', fontsize=14, fontweight='bold')
+        ax.set_xticks(np.arange(n_divisions))
+        ax.set_xticklabels([f'구간{i+1}' for i in range(n_divisions)])
+        ax.set_yticks(np.arange(n_zones))
+        ax.set_yticklabels([f'Zone {r["zone_id"]}' for r in zone_results])
+        
+        for i in range(n_zones):
+            for j in range(n_divisions):
+                text = ax.text(j, i, f'{change_heatmap[i, j]:+.1%}',
+                              ha="center", va="center", 
+                              color="white" if abs(change_heatmap[i, j]) > 0.2 else "black",
+                              fontsize=9)
+        
+        plt.colorbar(im, ax=ax, label='변화율')
+        
+        plt.tight_layout()
+        plot_path = f'{output_dir}/group_{group_id}_change_heatmap.png'
+        plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+        plt.close()
+        self.logger.debug(f"  ✓ 시각화 저장: {plot_path}")
+        
+        self.logger.info(f"  ✓ 시각화 완료: {output_dir}/group_{group_id}_*.png")
