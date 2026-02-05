@@ -1017,5 +1017,65 @@ class ModelTrainer:
         
         self.logger.info(f"✓ 리포트 저장: {output_file}")
         self.logger.info("="*80)
-        
+
         return report_text
+
+    def save_models(self):
+        """학습된 모델을 pickle 파일로 저장 (APC 최적화 엔진 연동용)"""
+        import pickle
+        from pathlib import Path
+
+        self.logger.info("="*80)
+        self.logger.info("학습된 모델 저장")
+        self.logger.info("="*80)
+
+        # 저장할 모델: CatBoost_multi (추천)
+        model_name = 'CatBoost_multi'
+
+        if model_name not in self.models:
+            self.logger.warning(f"모델을 찾을 수 없습니다: {model_name}")
+            self.logger.warning("사용 가능한 모델: " + ", ".join(self.models.keys()))
+            return None
+
+        model = self.models[model_name]
+
+        # 저장할 데이터 패키징
+        model_package = {
+            'model': model,
+            'scaler': self.scaler,
+            'input_features': self.input_features,
+            'output_features': self.output_features,
+            'metadata': {
+                'model_type': model_name,
+                'random_state': self.random_state,
+                'train_size': len(self.X_train),
+                'test_size': len(self.X_test),
+                'input_feature_count': len(self.input_features),
+                'output_feature_count': len(self.output_features),
+                'timestamp': str(datetime.now()),
+            }
+        }
+
+        # 파일로 저장
+        model_path = Path(self.output_dir) / f'{model_name}.pkl'
+        model_path.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            with open(model_path, 'wb') as f:
+                pickle.dump(model_package, f)
+
+            self.logger.info(f"✓ 모델 저장 완료: {model_path}")
+            self.logger.info(f"  모델 타입: {model_name}")
+            self.logger.info(f"  입력 특성: {len(self.input_features)}개")
+            self.logger.info(f"  출력 특성: {len(self.output_features)}개")
+            self.logger.info(f"  학습 샘플: {len(self.X_train)}")
+            self.logger.info(f"  테스트 샘플: {len(self.X_test)}")
+            self.logger.info(f"  파일 크기: {model_path.stat().st_size / 1024 / 1024:.2f} MB")
+            self.logger.info("="*80)
+
+            return model_path
+
+        except Exception as e:
+            self.logger.error(f"모델 저장 실패: {e}")
+            self.logger.error("="*80)
+            return None

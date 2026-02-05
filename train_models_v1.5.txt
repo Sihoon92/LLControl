@@ -226,5 +226,24 @@ def main():
     print("- Constrained: PyTorch MLP + 물리적 제약 손실 함수 (가장 강력)")
     print("\n" + "="*80)
 
+    # ======================================================================
+    # Step 11: 모델 저장 (APC 최적화 엔진 연동)
+    # ======================================================================
+    print("\n" + "="*80)
+    print("[Step 11] 학습된 모델 저장 (APC 최적화 엔진 연동)")
+    print("="*80)
+    model_path = trainer.save_models()
+
+    if model_path:
+        print("\n✓ 모델 저장 완료!")
+        print(f"  저장 위치: {model_path}")
+        print("\n[다음 단계]")
+        print("  1. apc_optimization 패키지에서 자동으로 모델 로드")
+        print("  2. python apc_optimization_full_test.py 실행")
+        print("  3. APC 최적화 엔진 시작!")
+    else:
+        print("\n⚠ 모델 저장에 실패했습니다.")
+        print("  CatBoost_multi 모델이 학습되지 않았을 수 있습니다.")
+
 if __name__ == "__main__":
     main()
