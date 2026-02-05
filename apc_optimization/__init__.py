@@ -38,6 +38,15 @@ from .optimizer_engine import (
     OptimizationResult
 )
 
+from .uncertainty_analyzer import (
+    MonteCarloUncertaintyAnalyzer,
+    MonteCarloResults
+)
+
+from .decision_support import DecisionSupportSystem, Scenario
+
+from .validation_framework import OfflineValidationFramework, ValidationMetrics
+
 __all__ = [
     # Config
     'N_ZONES', 'N_GV', 'N_CONTROL_VARS',
@@ -56,4 +65,13 @@ __all__ = [
 
     # Optimizer
     'DifferentialEvolutionOptimizer', 'OptimizationResult',
+
+    # Uncertainty Analysis
+    'MonteCarloUncertaintyAnalyzer', 'MonteCarloResults',
+
+    # Decision Support
+    'DecisionSupportSystem', 'Scenario',
+
+    # Validation
+    'OfflineValidationFramework', 'ValidationMetrics',
 ]
