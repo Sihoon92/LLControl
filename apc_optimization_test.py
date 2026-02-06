@@ -73,8 +73,10 @@ def test_model_interface():
     logger.info("Test 2: Model Interface (CatBoost)")
     logger.info("="*80)
 
-    # 모델 로드
-    model_manager = CatBoostModelManager()
+    # 모델 로드 - 명시적인 경로 설정
+    from apc_optimization.config import MODEL_DIR, MODEL_PARAMS
+    model_path = MODEL_DIR / f"{MODEL_PARAMS['model_name']}.pkl"
+    model_manager = CatBoostModelManager(model_path=str(model_path))
     logger.info(f"✓ 모델 로드 완료: {type(model_manager.model).__name__}")
 
     # 배치 예측 테스트
