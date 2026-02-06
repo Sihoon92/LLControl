@@ -16,8 +16,9 @@ import sys
 from .config import (
     PROJECT_ROOT, MODEL_DIR, CLR_PARAMS, N_ZONES, N_GV,
     INPUT_FEATURE_PATTERNS, OUTPUT_FEATURE_PATTERNS,
-    CLR_COMPONENTS, PROBABILITY_COMPONENTS
+    CLR_COMPONENTS, PROBABILITY_COMPONENTS, OUTPUT_TRANSFORM_CONFIG
 )
+from .output_transformer import OutputTransformer, TransformConfig
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +33,14 @@ class CatBoostModelManager:
     - 특성 중요도 조회
     """
 
-    def __init__(self, model_path: Optional[str] = None):
+    def __init__(self, model_path: Optional[str] = None,
+                 enable_output_transform: bool = False):
         """
         초기화 및 모델 로드
 
         Args:
             model_path: 모델 파일 경로. 없으면 자동으로 MODEL_DIR에서 찾음
+            enable_output_transform: 출력 변환 활성화 여부
         """
         self.model = None
         self.scaler = None
@@ -45,6 +48,12 @@ class CatBoostModelManager:
         self.output_features = None
         self.feature_importance = None
         self.model_metadata = {}
+
+        # 출력 변환기 초기화
+        transform_config = TransformConfig(**OUTPUT_TRANSFORM_CONFIG)
+        if enable_output_transform:
+            transform_config.enable = True
+        self.output_transformer = OutputTransformer(transform_config)
 
         self._load_model(model_path)
 
@@ -135,12 +144,13 @@ class CatBoostModelManager:
 
         return prediction[0] if prediction.shape[0] == 1 else prediction
 
-    def predict_batch(self, X: np.ndarray) -> np.ndarray:
+    def predict_batch(self, X: np.ndarray, apply_transform: bool = True) -> np.ndarray:
         """
         배치 예측 (벡터화된 예측)
 
         Args:
             X: Shape (n_samples, n_features)
+            apply_transform: 출력 변환 적용 여부
 
         Returns:
             Shape (n_samples, n_outputs)
@@ -160,6 +170,24 @@ class CatBoostModelManager:
 
         predictions = self.model.predict(X_scaled)
 
+        # 출력 변환 (필요시)
+        if apply_transform and self.output_transformer.config.enable:
+            predictions = self._apply_output_transform(predictions)
+
+        return predictions
+
+    def _apply_output_transform(self, predictions: np.ndarray) -> np.ndarray:
+        """
+        모델 출력 변환
+
+        Args:
+            predictions: Shape (n_samples, n_outputs)
+
+        Returns:
+            변환된 예측값
+        """
+        # Note: 예측값은 △CLR이므로 일반적으로 변환하지 않음
+        # 필요시 여기에 변환 로직 추가 가능
         return predictions
 
     def predict_with_uncertainty(self, X: np.ndarray) -> Tuple[np.ndarray, Optional[np.ndarray]]:

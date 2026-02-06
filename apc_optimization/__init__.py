@@ -31,6 +31,8 @@ from .cost_function import CostFunctionEvaluator
 
 from .model_interface import CatBoostModelManager, MockCatBoostModel
 
+from .output_transformer import OutputTransformer, TransformConfig
+
 from .multi_zone_controller import MultiZoneController, ZoneProperties
 
 from .optimizer_engine import (
@@ -59,6 +61,9 @@ __all__ = [
 
     # Model Interface
     'CatBoostModelManager', 'MockCatBoostModel',
+
+    # Output Transformer
+    'OutputTransformer', 'TransformConfig',
 
     # Multi-Zone Controller
     'MultiZoneController', 'ZoneProperties',

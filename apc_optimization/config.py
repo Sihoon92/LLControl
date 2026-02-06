@@ -215,7 +215,27 @@ CLR_COMPONENTS = ['CLR_1', 'CLR_2', 'CLR_3']  # Low, Mid, High
 PROBABILITY_COMPONENTS = ['P_Low', 'P_Mid', 'P_High']
 
 # ============================================================================
-# 12. 로깅 설정
+# 12. 출력 변환 설정 (Output Transformation)
+# ============================================================================
+
+OUTPUT_TRANSFORM_CONFIG = {
+    'enable': False,                              # 변환 활성화 (프로덕션: True)
+    'apply_delta_gv': True,                       # GV 변화량 변환
+    'delta_gv_method': 'round',                   # 'round'|'floor'|'ceil'
+    'delta_gv_decimals': 0,                       # 소수점 자리 (0 = 정수)
+    'apply_delta_rpm': False,                     # RPM 변화량 변환
+    'delta_rpm_method': 'round',
+    'delta_rpm_decimals': 0,
+    'validate_bounds': True,                      # 경계값 위반 검증
+    'clamp_bounds': True,                         # 경계값 자동 클램핑
+    'gv_bounds': (GV_GAP_BOUNDS['lower'],         # GV 경계
+                  GV_GAP_BOUNDS['upper']),
+    'rpm_bounds': (RPM_BOUNDS['lower'],           # RPM 경계
+                   RPM_BOUNDS['upper']),
+}
+
+# ============================================================================
+# 13. 로깅 설정
 # ============================================================================
 
 LOGGING_PARAMS = {
@@ -227,7 +247,7 @@ LOGGING_PARAMS = {
 }
 
 # ============================================================================
-# 13. 유틸리티 함수
+# 14. 유틸리티 함수
 # ============================================================================
 
 def get_bounds_array() -> Tuple[List[float], List[float]]:
