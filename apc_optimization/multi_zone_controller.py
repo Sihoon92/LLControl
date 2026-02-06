@@ -4,10 +4,10 @@
 Fan-out 패턴:
   1개 제어값 [△GV₁, ..., △GV₁₁, △RPM] → 11개 Zone 입력 구성 → 배치 예측
 
-각 Zone i의 입력:
-  - 위치 특성: distance_i, edge_distance_i (고정)
-  - 상태 특성: current_CLR_i (측정값)
-  - 제어 특성: △GV_(i-1), △GV_i, △GV_(i+1), △RPM (제어값)
+각 Zone i의 입력 (총 11개 특성):
+  - 위치 특성 (4개): distance_i, edge_distance_i, normalized_position, normalized_distance
+  - 상태 특성 (3개): current_CLR_i (측정값)
+  - 제어 특성 (4개): △GV_(i-1), △GV_i, △GV_(i+1), △RPM
 """
 
 import numpy as np
@@ -81,11 +81,13 @@ class MultiZoneController:
         """
         모델의 입력 특성 구조 파악
 
-        현재 코드에서 예상되는 입력:
-          - current_CLR_* (3개 성분 × 11 Zone = 33개)
-          - delta_GV_* (11개)
-          - delta_RPM (1개)
-          총 45개 특성?
+        현재 코드에서 각 Zone의 입력 특성 구조:
+          Zone당 11개 특성:
+            - 위치 특성: 4개 (distance, edge_distance, normalized_position, normalized_distance)
+            - 상태 특성: 3개 (current_CLR_1, current_CLR_2, current_CLR_3)
+            - 제어 특성: 4개 (GV_{i-1}, GV_i, GV_{i+1}, RPM)
+
+          배치 예측: 11개 Zone × 11개 특성 = 총 121개 특성 (배치 크기 제외)
 
         실제로는 모델 입력 특성명을 로드해야 함
         """
@@ -145,14 +147,11 @@ class MultiZoneController:
         단일 Zone의 입력 벡터 구성
 
         입력 구성:
-          [Zone_위치_특성(2)]
+          [Zone_위치_특성(4): distance, edge_distance, normalized_position, normalized_distance]
           + [현재_CLR(3)]
           + [인접_GV_변화(3): GV_{i-1}, GV_i, GV_{i+1}]
           + [RPM_변화(1)]
-          = 총 9개? (실제로는 모델 입력 차원에 따라 조정)
-
-        현재 코드에서는 정확한 입력 구조를 모르므로
-        일단 기본 특성만 구성하고, 나중에 모델에 맞춰 조정
+          = 총 11개
 
         Args:
             zone_id: 0~10
@@ -161,14 +160,22 @@ class MultiZoneController:
             delta_rpm: Scalar
 
         Returns:
-            Shape (n_features,) - Zone 입력 벡터
+            Shape (11,) - Zone 입력 벡터
         """
         zone_prop = self.zone_properties[zone_id]
+        center = N_ZONES / 2
 
-        # 위치 특성
+        # 위치 특성 (4개)
+        zone_distance_from_center = abs(zone_id - (center - 0.5))
+        is_edge = 1.0 if (zone_id == 0 or zone_id == N_ZONES - 1) else 0.0
+        normalized_position = zone_id / (N_ZONES - 1)  # 0~1 정규화
+        normalized_distance = zone_distance_from_center / (center - 0.5)  # 0~1 정규화
+
         position_features = np.array([
             zone_prop.distance,
             zone_prop.edge_distance,
+            normalized_position,
+            normalized_distance,
         ])
 
         # 현재 상태 특성 (CLR)
@@ -191,11 +198,11 @@ class MultiZoneController:
 
         # 전체 특성 결합
         zone_input = np.concatenate([
-            position_features,           # 2개
+            position_features,           # 4개
             state_features,              # 3개
             control_features_gv,         # 3개
             control_features_rpm,        # 1개
-        ])  # 총 9개
+        ])  # 총 11개
 
         return zone_input
 
