@@ -185,6 +185,12 @@ def setup_logging(verbose: bool = False):
         level=level,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
+
+    # apc_optimization 패키지의 모든 로거에 대해 레벨 설정
+    # 이렇게 하면 optimizer_engine.py 등의 모듈에서도 debug 메시지가 출력됨
+    apc_logger = logging.getLogger('apc_optimization')
+    apc_logger.setLevel(level)
+
     return level
 
 
