@@ -28,6 +28,8 @@ from .config import (
 from .cost_function import CostFunctionEvaluator
 from .multi_zone_controller import MultiZoneController
 from .model_interface import CatBoostModelManager
+from .output_transformer import OutputTransformer, TransformConfig
+from .config import OUTPUT_TRANSFORM_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +86,10 @@ class DifferentialEvolutionOptimizer:
         # Multi-zone 제어기
         self.controller = MultiZoneController(model_manager)
 
+        # 출력 변환기 (정수화)
+        transform_config = TransformConfig(**OUTPUT_TRANSFORM_CONFIG)
+        self.output_transformer = OutputTransformer(transform_config)
+
         # 최적화 히스토리
         self.evaluation_history = []
         self.best_cost_history = []
@@ -96,6 +102,11 @@ class DifferentialEvolutionOptimizer:
         logger.info(f"제어 변수: {N_CONTROL_VARS}개")
         logger.info(f"경계: GV [{self.bounds_lower[0]}, {self.bounds_upper[0]}], "
                     f"RPM [{self.bounds_lower[-1]}, {self.bounds_upper[-1]}]")
+
+        # 출력 변환기 상태
+        if self.output_transformer.config.enable:
+            logger.info(f"✓ 출력 변환 활성화: GV {self.output_transformer.config.delta_gv_method}() "
+                       f"decimals={self.output_transformer.config.delta_gv_decimals}")
 
     # ========================================================================
     # 제약 조건 검증
@@ -162,8 +173,11 @@ class DifferentialEvolutionOptimizer:
         """
         self.eval_count += 1
 
-        # 1. 제약 조건 검증
-        is_feasible, constraint_msg = self.check_constraints(x)
+        # 0. 출력 변환 (정수화)
+        x_transformed = self.output_transformer.transform(x, x_type='control_vector')
+
+        # 1. 제약 조건 검증 (정수화된 값으로)
+        is_feasible, constraint_msg = self.check_constraints(x_transformed)
         penalty = 0.0
 
         if not is_feasible:
@@ -172,9 +186,9 @@ class DifferentialEvolutionOptimizer:
             penalty = penalty_multiplier
             logger.debug(f"[Eval {self.eval_count}] 제약 위반: {constraint_msg}")
 
-        # 2. Multi-zone 평가
+        # 2. Multi-zone 평가 (정수화된 값으로)
         try:
-            control_result = self.controller.evaluate_control(x, self.current_state)
+            control_result = self.controller.evaluate_control(x_transformed, self.current_state)
             p_low = control_result['p_low']
             p_mid = control_result['p_mid']
             p_high = control_result['p_high']
@@ -182,9 +196,9 @@ class DifferentialEvolutionOptimizer:
             logger.error(f"제어 평가 실패: {e}")
             return 1e10 + penalty
 
-        # 3. 비용 평가
-        delta_gv = x[:N_GV]
-        delta_rpm = x[N_GV]
+        # 3. 비용 평가 (정수화된 값으로)
+        delta_gv = x_transformed[:N_GV]
+        delta_rpm = x_transformed[N_GV]
 
         try:
             cost, breakdown = self.cost_evaluator.evaluate_total_cost(
@@ -201,11 +215,13 @@ class DifferentialEvolutionOptimizer:
         self.evaluation_history.append({
             'eval_count': self.eval_count,
             'x': x.copy(),
+            'x_transformed': x_transformed.copy(),
             'cost': cost,
             'penalty': penalty,
             'total_cost': total_cost,
             'p_mid_mean': np.mean(p_mid),
             'feasible': is_feasible,
+            'transform_active': self.output_transformer.config.enable,
         })
 
         # 최선 비용 추적
@@ -270,20 +286,23 @@ class DifferentialEvolutionOptimizer:
             # 최적해에서의 비용 분석
             self.eval_count_at_best = len([e for e in self.evaluation_history if e['cost'] < scipy_result.fun + 0.001])
 
-            # 최종 비용 분석
-            final_control = self.controller.evaluate_control(scipy_result.x, self.current_state)
+            # 최종 해를 정수화
+            x_opt_transformed = self.output_transformer.transform(scipy_result.x, x_type='control_vector')
+
+            # 최종 비용 분석 (정수화된 값으로)
+            final_control = self.controller.evaluate_control(x_opt_transformed, self.current_state)
             p_low_final = final_control['p_low']
             p_mid_final = final_control['p_mid']
             p_high_final = final_control['p_high']
 
             _, final_breakdown = self.cost_evaluator.evaluate_total_cost(
                 p_low_final, p_mid_final, p_high_final,
-                scipy_result.x[:N_GV], scipy_result.x[N_GV]
+                x_opt_transformed[:N_GV], x_opt_transformed[N_GV]
             )
 
             # 결과 생성
             result = OptimizationResult(
-                x_opt=scipy_result.x,
+                x_opt=x_opt_transformed,  # 정수화된 최적해
                 cost_opt=scipy_result.fun,
                 scipy_result=scipy_result,
                 n_evaluations=self.eval_count,
@@ -301,7 +320,12 @@ class DifferentialEvolutionOptimizer:
             logger.info(f"총 평가 횟수: {self.eval_count}")
             logger.info(f"소요 시간: {elapsed_time:.2f}초")
             logger.info(f"최적 비용: {scipy_result.fun:.6f}")
-            logger.info(f"최적해: {scipy_result.x}")
+
+            if self.output_transformer.config.enable:
+                logger.info(f"최적해 (변환 전): {scipy_result.x}")
+                logger.info(f"최적해 (변환 후): {x_opt_transformed}")
+            else:
+                logger.info(f"최적해: {scipy_result.x}")
 
             return result
 

@@ -10,6 +10,7 @@ MVP (Minimum Viable Product) 범위의 통합 테스트:
 
 import sys
 import logging
+import argparse
 import numpy as np
 from pathlib import Path
 
@@ -23,12 +24,6 @@ from apc_optimization import (
     MultiZoneController,
     DifferentialEvolutionOptimizer,
     create_config_summary,
-)
-
-# 로깅 설정
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
 logger = logging.getLogger(__name__)
@@ -178,12 +173,57 @@ def test_optimizer_quick():
     return True
 
 
+def setup_logging(verbose: bool = False):
+    """
+    로깅 설정
+
+    Args:
+        verbose: True면 DEBUG 레벨, False면 INFO 레벨
+    """
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+
+    # apc_optimization 패키지의 모든 로거에 대해 레벨 설정
+    # 이렇게 하면 optimizer_engine.py 등의 모듈에서도 debug 메시지가 출력됨
+    apc_logger = logging.getLogger('apc_optimization')
+    apc_logger.setLevel(level)
+
+    return level
+
+
 def main():
     """모든 테스트 실행"""
+    # 커맨드라인 인자 파싱
+    parser = argparse.ArgumentParser(
+        description='APC 최적화 엔진 통합 테스트',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+예시:
+  python apc_optimization_test.py              # 기본 실행 (INFO 레벨)
+  python apc_optimization_test.py --verbose    # 상세 모드 (DEBUG 레벨)
+  python apc_optimization_test.py -v           # 상세 모드 (단축)
+        """
+    )
+    parser.add_argument(
+        '-v', '--verbose',
+        action='store_true',
+        help='상세 로깅 활성화 (DEBUG 레벨 - logger.debug() 내용 표시)'
+    )
+
+    args = parser.parse_args()
+
+    # 로깅 설정
+    log_level = setup_logging(verbose=args.verbose)
+    log_level_name = "DEBUG" if args.verbose else "INFO"
+
     logger.info("\n")
     logger.info("╔" + "="*78 + "╗")
     logger.info("║" + " "*20 + "APC 최적화 엔진 통합 테스트" + " "*30 + "║")
     logger.info("╚" + "="*78 + "╝")
+    logger.info(f"로깅 레벨: {log_level_name} {'(--verbose 활성화됨)' if args.verbose else ''}\n")
 
     # 설정 요약 출력
     logger.info(create_config_summary())
