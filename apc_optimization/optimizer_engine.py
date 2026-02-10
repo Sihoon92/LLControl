@@ -29,6 +29,7 @@ from .cost_function import CostFunctionEvaluator
 from .multi_zone_controller import MultiZoneController
 from .model_interface import CatBoostModelManager
 from .output_transformer import OutputTransformer, TransformConfig
+from .normalizer import ControlVariableNormalizer
 from .config import OUTPUT_TRANSFORM_CONFIG
 
 logger = logging.getLogger(__name__)
@@ -85,6 +86,16 @@ class DifferentialEvolutionOptimizer:
 
         # Multi-zone 제어기
         self.controller = MultiZoneController(model_manager)
+
+        # 통합 정규화 클래스 초기화 (model_manager의 scaler 포함)
+        # ★ Phase 3: 예측 모델과 비용 함수의 정규화 일관성 보장
+        self.normalizer = ControlVariableNormalizer(
+            gv_max=cost_evaluator.normalizer.gv_max,
+            rpm_max=cost_evaluator.normalizer.rpm_max,
+            scaler=model_manager.scaler  # ★ StandardScaler 전달
+        )
+        logger.info(f"✓ 통합 정규화 클래스 초기화: "
+                   f"{self.normalizer.get_description().split(chr(10))[0]}")
 
         # 출력 변환기 (정수화)
         transform_config = TransformConfig(**OUTPUT_TRANSFORM_CONFIG)

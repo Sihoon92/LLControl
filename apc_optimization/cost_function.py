@@ -14,6 +14,7 @@ from .config import (
     CONTROL_COST_PARAMS, SAFETY_COST_PARAMS, CONTROL_LIMITS,
     N_ZONES, GV_ADJACENT_MAX_DIFF, GV_TOTAL_CHANGE_MAX
 )
+from .normalizer import ControlVariableNormalizer
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,8 @@ class CostFunctionEvaluator:
     def __init__(self,
                  weights: Optional[Dict[str, float]] = None,
                  ucl: float = CONTROL_LIMITS['ucl'],
-                 lcl: float = CONTROL_LIMITS['lcl']):
+                 lcl: float = CONTROL_LIMITS['lcl'],
+                 normalizer: Optional[ControlVariableNormalizer] = None):
         """
         초기화
 
@@ -37,10 +39,20 @@ class CostFunctionEvaluator:
             weights: 비용 가중치 (없으면 config 기본값 사용)
             ucl: Upper Control Limit
             lcl: Lower Control Limit
+            normalizer: ControlVariableNormalizer 인스턴스 (없으면 생성)
         """
         self.weights = weights or COST_WEIGHTS
         self.ucl = ucl
         self.lcl = lcl
+
+        # 통합 정규화 클래스 초기화
+        if normalizer is None:
+            self.normalizer = ControlVariableNormalizer(
+                gv_max=CONTROL_COST_PARAMS['gv_max'],
+                rpm_max=CONTROL_COST_PARAMS['rpm_max']
+            )
+        else:
+            self.normalizer = normalizer
 
         # 가중치 정규화 (합이 1이 되도록)
         total_weight = sum(self.weights.values())
@@ -49,6 +61,7 @@ class CostFunctionEvaluator:
         logger.info(f"Cost Function Evaluator 초기화")
         logger.info(f"가중치: {self.weights}")
         logger.info(f"정규화된 가중치: {self.weights_normalized}")
+        logger.info(f"정규화: {self.normalizer.get_description()}")
 
     # ========================================================================
     # 1. 품질 비용 (Quality Cost)
@@ -151,9 +164,10 @@ class CostFunctionEvaluator:
         """
         제어 변화량 최소화 비용
 
-        GV_norm = [Σ(△GV_i / 2.0)²] / 11
-        RPM_norm = (△RPM / 50)²
-        Control_Cost = 0.7·GV_norm + 0.3·RPM_norm
+        통합 정규화 클래스를 사용한 MinMax 정규화:
+        GV_norm = [Σ(|△GV_i| / gv_max)²] / 11
+        RPM_norm = (|△RPM| / rpm_max)²
+        Control_Cost = beta·GV_norm + gamma·RPM_norm
 
         Args:
             delta_gv: Shape (11,) - 각 GV의 변화량 (mm)
@@ -162,23 +176,25 @@ class CostFunctionEvaluator:
         Returns:
             (control_cost, detail_dict)
         """
-        gv_max = CONTROL_COST_PARAMS['gv_max']
-        rpm_max = CONTROL_COST_PARAMS['rpm_max']
+        # 통합 정규화 클래스 사용
+        gv_normalized, rpm_normalized = self.normalizer.normalize_for_cost(
+            delta_gv, delta_rpm
+        )
+
+        # 제어 비용 계산 (정규화된 값의 제곱)
         beta = CONTROL_COST_PARAMS['beta']
         gamma = CONTROL_COST_PARAMS['gamma']
 
-        # GV 정규화
-        gv_normalized = (delta_gv / gv_max) ** 2
-        gv_norm = np.mean(gv_normalized)
-
-        # RPM 정규화
-        rpm_norm = (delta_rpm / rpm_max) ** 2
+        gv_norm = np.mean(gv_normalized ** 2)
+        rpm_norm = rpm_normalized ** 2
 
         # 가중 합
         control_cost = beta * gv_norm + gamma * rpm_norm
         control_cost = np.clip(control_cost, 0.0, 1.0)
 
         details = {
+            'gv_normalized': gv_normalized,      # ★ 새로 추가
+            'rpm_normalized': rpm_normalized,    # ★ 새로 추가
             'gv_norm': gv_norm,
             'rpm_norm': rpm_norm,
             'gv_values': delta_gv,
