@@ -60,6 +60,60 @@ class DifferentialEvolutionOptimizer:
     5. Cost 평가: 4개 비용 항목 계산
     6. 진화: DE 알고리즘으로 다음 세대 생성
     7. 반복: 수렴까지
+
+    ⚠️ 정규화 아키텍처 (Normalization Architecture):
+    ================================================
+
+    제어값(δGV, δRPM)은 두 가지 다른 경로를 통해 처리됨:
+
+    경로 1: 예측 모델 (Prediction Path)
+    ─────────────────────────────────
+    x (원본 제어값)
+      ↓
+    construct_zone_inputs(x)
+      ├─ control_features = [δGV_{i-1}, δGV_i, δGV_{i+1}, δRPM]
+      └─ zone_inputs (원본 스케일 제어값 포함)
+      ↓
+    model.predict_batch(zone_inputs)
+      └─ scaler.transform(zone_inputs)  ← StandardScaler 자동 적용!
+         공식: (value - μ_train) / σ_train
+         범위: (-∞, +∞)
+      ↓
+    확률 분포 (△CLR 예측)
+
+    경로 2: 비용 함수 (Cost Path)
+    ──────────────────────────
+    x (원본 제어값)
+      ↓
+    cost_evaluator.evaluate_total_cost(p_low, p_mid, p_high, δGV, δRPM)
+      └─ control_cost(δGV, δRPM)
+         └─ normalizer.normalize_for_cost(δGV, δRPM)
+            └─ MinMax 정규화: |value| / max_value
+               범위: [0, 1]
+               기준: 공정 제약 (gv_max=2.0, rpm_max=50)
+      ↓
+    제어 비용 + 다른 비용들 (총 비용)
+
+    설계 원칙:
+    ─────────
+    1. 예측 모델은 StandardScaler로 학습됨
+       → zone_inputs는 원본 스케일이어야 함
+       → 모델이 학습 데이터와 동일하게 정규화하기 위함
+
+    2. 비용 함수는 공정 제약 조건을 반영
+       → MinMax 정규화 (절댓값 기준)
+       → [0, 1] 범위 → 해석 용이
+
+    3. 두 정규화는 서로 다른 목적
+       → 동시에 적용되어야 함
+       → 불일치가 아님, 의도적 설계
+
+    self.normalizer 역할:
+    ───────────────────
+    - ControlVariableNormalizer로 두 경로의 정규화를 관리
+    - normalize_for_cost(): 비용 함수용 MinMax 정규화
+    - normalize_for_prediction(): 예측용 StandardScaler (필요시)
+    - 단일 진실 공급원(SSOT) 원칙으로 정규화 기준 통일
     """
 
     def __init__(self,
@@ -87,14 +141,21 @@ class DifferentialEvolutionOptimizer:
         # Multi-zone 제어기
         self.controller = MultiZoneController(model_manager)
 
-        # 통합 정규화 클래스 초기화 (model_manager의 scaler 포함)
-        # ★ Phase 3: 예측 모델과 비용 함수의 정규화 일관성 보장
+        # ★ Phase 3: 통합 정규화 클래스 초기화
+        # ───────────────────────────────────
+        # 두 가지 정규화 방식을 관리:
+        # 1. normalize_for_cost(): MinMax (비용 함수용)
+        #    - 공정 제약: gv_max=2.0, rpm_max=50
+        #    - 범위: [0, 1]
+        # 2. normalize_for_prediction(): StandardScaler (예측용)
+        #    - 모델의 학습 데이터 기반
+        #    - 범위: (-∞, +∞)
         self.normalizer = ControlVariableNormalizer(
             gv_max=cost_evaluator.normalizer.gv_max,
             rpm_max=cost_evaluator.normalizer.rpm_max,
-            scaler=model_manager.scaler  # ★ StandardScaler 전달
+            scaler=model_manager.scaler  # ★ 예측 모델의 StandardScaler
         )
-        logger.info(f"✓ 통합 정규화 클래스 초기화: "
+        logger.info(f"✓ 통합 정규화 클래스 초기화 (MinMax + StandardScaler): "
                    f"{self.normalizer.get_description().split(chr(10))[0]}")
 
         # 출력 변환기 (정수화)
@@ -170,14 +231,35 @@ class DifferentialEvolutionOptimizer:
         """
         목적함수 (최소화할 값)
 
-        프로세스:
-        1. 제약 검증
-        2. Multi-zone 제어 평가
-        3. 비용 평가
-        4. 위반 페널티 추가
+        정규화 흐름:
+        ─────────
+        입력 x (원본 제어값)
+          ↓
+        1. 출력 변환 (정수화)
+           └─ x_transformed = [정수화된 δGV, 정수화된 δRPM]
+          ↓
+        2. 제약 조건 검증
+           └─ x_transformed로 검증 (정수화된 값)
+          ↓
+        3. 제어 평가 (경로 1: 예측)
+           └─ controller.evaluate_control(x_transformed, current_state)
+              ├─ construct_zone_inputs(x_transformed)
+              │  └─ zone_inputs (원본 스케일 제어값 포함)
+              ├─ model.predict_batch(zone_inputs)
+              │  └─ scaler.transform() ← StandardScaler 적용!
+              └─ 확률 분포 반환
+          ↓
+        4. 비용 평가 (경로 2: 비용)
+           └─ cost_evaluator.evaluate_total_cost(
+                p_low, p_mid, p_high, δGV, δRPM)
+              └─ control_cost(δGV, δRPM)
+                 └─ self.normalizer.normalize_for_cost()
+                    └─ MinMax 정규화 [0, 1]
+          ↓
+        5. 총 비용 반환 (DE 알고리즘 최소화 대상)
 
         Args:
-            x: Shape (12,) - 제어값
+            x: Shape (12,) - 제어값 (원본 스케일)
 
         Returns:
             float - 목적함수 값 (최소화 대상)
