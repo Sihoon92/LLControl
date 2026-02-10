@@ -94,15 +94,25 @@ class OptimizationEvaluator:
             if key in optimized_breakdown:
                 baseline_val = baseline_breakdown[key]
                 optimized_val = optimized_breakdown[key]
-                abs_imp = baseline_val - optimized_val
-                rel_imp = (abs_imp / baseline_val * 100) if baseline_val > 0 else 0.0
 
-                item_improvements[key] = {
-                    'baseline': baseline_val,
-                    'optimized': optimized_val,
-                    'absolute_improvement': abs_imp,
-                    'relative_improvement': rel_imp
-                }
+                # 숫자 값인 경우만 개선도 계산 (dict, list 등은 건너뛰기)
+                if isinstance(baseline_val, (int, float)) and isinstance(optimized_val, (int, float)):
+                    abs_imp = baseline_val - optimized_val
+                    rel_imp = (abs_imp / baseline_val * 100) if baseline_val > 0 else 0.0
+
+                    item_improvements[key] = {
+                        'baseline': baseline_val,
+                        'optimized': optimized_val,
+                        'absolute_improvement': abs_imp,
+                        'relative_improvement': rel_imp
+                    }
+                else:
+                    # dict나 다른 타입은 값만 기록 (개선도 계산 안 함)
+                    item_improvements[key] = {
+                        'baseline': baseline_val,
+                        'optimized': optimized_val,
+                        'note': 'Non-numeric value (detail data)'
+                    }
 
         metrics = {
             'baseline_cost': baseline_cost,
