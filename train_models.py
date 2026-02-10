@@ -102,105 +102,123 @@ def main():
     # ======================================================================
     # Step 1: 데이터 로드 및 전처리
     # ======================================================================
-    print("\n" + "="*80)
-    print("[Step 1] 데이터 로드 및 전처리")
-    print("="*80)
-    trainer.load_data()
-    trainer.prepare_data(
-        test_size=0.2,
+    print("\n[Step 1] 데이터 로드 및 전처리")
+    trainer.load_and_prepare_data(
+        test_size=0.3,
         scale_features=True
     )
 
     # ======================================================================
-    # Step 2: 모델 학습 (여러 모델 비교)
+    # Step 2: 모델 학습 - 기존 방식 (Independent)
     # ======================================================================
     print("\n" + "="*80)
-    print(f"[Step 2] 모델 학습 ({args.mode.upper()} 데이터)")
+    print(f"[Step 2] 기존 방식 (Independent) 모델 학습 ({args.mode.upper()} 데이터)")
     print("="*80)
 
-    # 2-1. CatBoost (Independent)
-    print("\n  [2-1] CatBoost (Independent)...")
-    trainer.train_catboost(
-        model_name='CatBoost_independent',
-        multioutput_strategy='independent'
+    # 2-1. Gaussian Process Regression
+    print("\n[2-1] Gaussian Process Regression (Independent)...")
+    trainer.train_gpr(
+        kernel_type='rbf',
+        length_scale=1.0,
+        alpha=1e-6
     )
 
-    # 2-2. CatBoost (Chain)
-    print("\n  [2-2] CatBoost (Chain)...")
-    trainer.train_catboost(
-        model_name='CatBoost_chain',
-        multioutput_strategy='chain'
-    )
-
-    # 2-3. CatBoost (MultiRMSE)
-    print("\n  [2-3] CatBoost (MultiRMSE - 네이티브 다변량)...")
-    trainer.train_catboost_multi(
-        model_name='CatBoost_multi'
-    )
-
-    # 2-4. XGBoost (Independent)
-    print("\n  [2-4] XGBoost (Independent)...")
+    # 2-2. XGBoost (Independent)
+    print("\n[2-2] XGBoost (Independent)...")
     trainer.train_xgboost(
-        model_name='XGBoost_independent',
-        multioutput_strategy='independent'
+        n_estimators=100,
+        max_depth=6,
+        learning_rate=0.1,
+        method='independent'
     )
 
-    # 2-5. Random Forest (Independent)
-    print("\n  [2-5] Random Forest (Independent)...")
+    # 2-3. Random Forest (Independent)
+    print("\n[2-3] Random Forest (Independent)...")
     trainer.train_random_forest(
-        model_name='RandomForest_independent',
-        multioutput_strategy='independent'
+        n_estimators=100,
+        max_depth=10,
+        method='independent'
     )
 
-    # 2-6. MLP (Independent)
-    print("\n  [2-6] MLP (Independent)...")
-    trainer.train_mlp(
-        model_name='MLP_independent',
-        multioutput_strategy='independent'
-    )
-
-    # 2-7. PyTorch MLP with Constraints
-    print("\n  [2-7] PyTorch MLP (물리적 제약 포함)...")
-    trainer.train_pytorch_mlp(
-        model_name='MLP_constrained'
+    # 2-4. sklearn MLP (Independent)
+    print("\n[2-4] sklearn MLP (Independent)...")
+    trainer.train_mlp_sklearn(
+        hidden_layer_sizes=(100, 50),
+        max_iter=1000
     )
 
     # ======================================================================
-    # Step 3: 교차 검증 (선택)
+    # Step 3: 모델 학습 - RegressorChain 방식
     # ======================================================================
     print("\n" + "="*80)
-    print("[Step 3] 교차 검증 (선택적)")
+    print("[Step 3] RegressorChain 방식 모델 학습")
     print("="*80)
-    print("  교차 검증은 시간이 오래 걸리므로 skip...")
-    # trainer.cross_validate('CatBoost_multi', cv=5)
+
+    # 3-1. XGBoost (Chain)
+    print("\n[3-1] XGBoost (Chain)...")
+    trainer.train_xgboost(
+        n_estimators=100,
+        max_depth=6,
+        learning_rate=0.1,
+        method='chain'
+    )
+
+    # 3-2. Random Forest (Chain)
+    print("\n[3-2] Random Forest (Chain)...")
+    trainer.train_random_forest(
+        n_estimators=100,
+        max_depth=10,
+        method='chain'
+    )
+
+    # 3-3. CatBoost (Chain)
+    print("\n[3-3] CatBoost (Chain)...")
+    trainer.train_catboost(
+        iterations=500,
+        depth=6,
+        learning_rate=0.1,
+        method='chain'
+    )
 
     # ======================================================================
-    # Step 4: 테스트 세트 평가
+    # Step 4: 모델 학습 - CatBoost MultiRMSE
     # ======================================================================
     print("\n" + "="*80)
-    print("[Step 4] 테스트 세트 평가")
+    print("[Step 4] CatBoost MultiRMSE (Native Multi-Output)")
     print("="*80)
-    for model_name in trainer.models.keys():
-        print(f"\n  평가 중: {model_name}...")
-        trainer.evaluate_model(model_name)
+
+    print("\n[4-1] CatBoost (MultiRMSE)...")
+    trainer.train_catboost(
+        iterations=500,
+        depth=6,
+        learning_rate=0.1,
+        method='multi'
+    )
 
     # ======================================================================
-    # Step 5: 특성 중요도 분석
+    # Step 5: 모델 학습 - Constrained MLP (PyTorch)
     # ======================================================================
     print("\n" + "="*80)
-    print("[Step 5] 특성 중요도 분석")
+    print("[Step 5] Constrained MLP (PyTorch) - 물리적 제약 조건 포함")
     print("="*80)
-    print("  [5-1] CatBoost_multi 특성 중요도...")
-    trainer.plot_feature_importance('CatBoost_multi')
+
+    print("\n[5-1] MLP with Physical Constraints...")
+    trainer.train_mlp_constrained(
+        hidden_dims=[128, 64],
+        epochs=200,
+        batch_size=32,
+        learning_rate=0.001,
+        sum_weight=1.0,
+        variance_weight=0.1  # 분산 제약 가중치
+    )
 
     # ======================================================================
-    # Step 6: 잔차 분석
+    # Step 6: 모델 평가
     # ======================================================================
     print("\n" + "="*80)
-    print("[Step 6] 잔차 분석")
+    print("[Step 6] 모델 평가")
     print("="*80)
-    print("  [6-1] CatBoost_multi 잔차 분석...")
-    trainer.plot_residuals('CatBoost_multi')
+    trainer.evaluate_models()
 
     # ======================================================================
     # Step 7: 모델 성능 비교
