@@ -904,12 +904,36 @@ class APCPreprocessor:
             self.logger.warning("UCL, TARGET, LCL 칼럼이 없습니다. 매칭을 건너뜁니다.")
             return meaningful_df
 
-        # meaningful_df에 LLspec 칼럼 추가 (NaN으로 초기화)
+        # LLspec 시간 범위 확인
+        llspec_min_time = llspec_df[self.config.TIME_COL].min()
+        llspec_max_time = llspec_df[self.config.TIME_COL].max()
+
+        self.logger.info(f"LLspec 시간 범위: {llspec_min_time} ~ {llspec_max_time}")
+        self.logger.info(f"원본 meaningful_df 그룹 수: {len(meaningful_df)}")
+
+        # meaningful_df를 LLspec 시간 범위 내로 필터링
+        # start_time이 LLspec 시간 범위 내에 있는 행만 선택
+        time_mask = (
+            (meaningful_df['start_time'] >= llspec_min_time) &
+            (meaningful_df['start_time'] <= llspec_max_time)
+        )
+
+        filtered_count = time_mask.sum()
+        excluded_count = len(meaningful_df) - filtered_count
+
+        if excluded_count > 0:
+            self.logger.info(f"LLspec 시간 범위 외 그룹 제외: {excluded_count}개")
+            self.logger.info(f"매칭 대상 그룹 수: {filtered_count}개")
+
+        # 필터링된 DataFrame 생성 (원본 보존)
+        meaningful_df_filtered = meaningful_df[time_mask].copy()
+
+        # meaningful_df_filtered에 LLspec 칼럼 추가 (NaN으로 초기화)
         for col in available_spec_cols:
-            meaningful_df[col] = np.nan
+            meaningful_df_filtered[col] = np.nan
 
         # 각 group에 대해 start_time 기준으로 가장 가까운 LLspec 값 매칭
-        for idx, row in meaningful_df.iterrows():
+        for idx, row in meaningful_df_filtered.iterrows():
             start_time = row['start_time']
 
             # start_time과 가장 가까운 TIME 찾기
@@ -925,22 +949,27 @@ class APCPreprocessor:
 
             # LLspec 값 매칭
             for col in available_spec_cols:
-                meaningful_df.at[idx, col] = llspec_df.at[closest_idx, col]
+                meaningful_df_filtered.at[idx, col] = llspec_df.at[closest_idx, col]
 
-            self.logger.info(f"Group {row['group_id']}: LLspec 매칭 완료 (시간 차이: {time_diff_seconds:.1f}초)")
+            self.logger.debug(f"Group {row['group_id']}: LLspec 매칭 완료 (시간 차이: {time_diff_seconds:.1f}초)")
             if 'UCL' in available_spec_cols and 'LCL' in available_spec_cols:
-                self.logger.debug(f"  UCL: {meaningful_df.at[idx, 'UCL']:.4f}, LCL: {meaningful_df.at[idx, 'LCL']:.4f}")
+                self.logger.debug(f"  UCL: {meaningful_df_filtered.at[idx, 'UCL']:.4f}, LCL: {meaningful_df_filtered.at[idx, 'LCL']:.4f}")
 
         # 매칭 통계
-        matched_count = meaningful_df[available_spec_cols[0]].notna().sum()
-        total_count = len(meaningful_df)
+        matched_count = meaningful_df_filtered[available_spec_cols[0]].notna().sum()
+        filtered_total = len(meaningful_df_filtered)
+        original_total = len(meaningful_df)
 
         self.logger.info("="*80)
         self.logger.info("매칭 결과 요약")
         self.logger.info("="*80)
-        self.logger.info(f"전체 그룹 수: {total_count}")
-        self.logger.info(f"매칭 성공: {matched_count} ({matched_count/total_count*100:.1f}%)")
-        self.logger.info(f"매칭 실패: {total_count - matched_count} ({(total_count - matched_count)/total_count*100:.1f}%)")
+        self.logger.info(f"전체 그룹 수 (원본): {original_total}")
+        self.logger.info(f"LLspec 시간 범위 내 그룹 수: {filtered_total}")
+        if filtered_total > 0:
+            self.logger.info(f"매칭 성공: {matched_count} ({matched_count/filtered_total*100:.1f}%)")
+            self.logger.info(f"매칭 실패: {filtered_total - matched_count} ({(filtered_total - matched_count)/filtered_total*100:.1f}%)")
+        else:
+            self.logger.warning("매칭 대상 그룹이 없습니다.")
         self.logger.info("="*80)
 
-        return meaningful_df
+        return meaningful_df_filtered
