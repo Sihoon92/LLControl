@@ -6,6 +6,7 @@ import pandas as pd
 from typing import List
 import os
 import logging
+import utils
 
 
 class DataMerger:
@@ -44,13 +45,8 @@ class DataMerger:
             self.logger.info(f"처리 중: {os.path.basename(file_path)}")
 
             try:
-                if file_path.endswith('.csv'):
-                    df = pd.read_csv(file_path)
-                elif file_path.endswith(('.xlsx', '.xls')):
-                    df = pd.read_excel(file_path)
-                else:
-                    self.logger.warning(f"  ⚠ 지원하지 않는 형식: {file_path}")
-                    continue
+                # 파일 형식에 따라 자동 로드 (Excel: xlwings, CSV/Parquet: pandas)
+                df = utils.load_file(file_path, logger=self.logger)
 
                 self.logger.info(f"  ✓ {len(df)} 행 로드")
                 all_data.append(df)
@@ -101,13 +97,8 @@ class DataMerger:
             self.logger.info(f"처리 중: {os.path.basename(file_path)}")
 
             try:
-                if file_path.endswith('.csv'):
-                    df = pd.read_csv(file_path)
-                elif file_path.endswith(('.xlsx', '.xls')):
-                    df = pd.read_excel(file_path)
-                else:
-                    self.logger.warning(f"  ⚠ 지원하지 않는 형식: {file_path}")
-                    continue
+                # 파일 형식에 따라 자동 로드 (Excel: xlwings, CSV/Parquet: pandas)
+                df = utils.load_file(file_path, logger=self.logger)
 
                 self.logger.info(f"  ✓ {len(df)} 행 로드")
                 all_data.append(df)
@@ -158,13 +149,8 @@ class DataMerger:
             self.logger.info(f"처리 중: {os.path.basename(file_path)}")
 
             try:
-                if file_path.endswith('.csv'):
-                    df = pd.read_csv(file_path)
-                elif file_path.endswith(('.xlsx', '.xls')):
-                    df = pd.read_excel(file_path)
-                else:
-                    self.logger.warning(f"  ⚠ 지원하지 않는 형식: {file_path}")
-                    continue
+                # 파일 형식에 따라 자동 로드 (Excel: xlwings, CSV/Parquet: pandas)
+                df = utils.load_file(file_path, logger=self.logger)
 
                 self.logger.info(f"  ✓ {len(df)} 행 로드")
                 all_data.append(df)

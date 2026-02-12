@@ -3,6 +3,7 @@ import numpy as np
 from typing import Dict, List, Optional
 import os
 import logging
+import utils
 
 class ModelDataPreparator:
     """모델 학습용 데이터 준비 클래스"""
@@ -451,15 +452,16 @@ class ModelDataPreparator:
         return float(after_val - before_val)
 
     def _load_data(self, file_path: str) -> Optional[pd.DataFrame]:
-        """데이터 파일 로드"""
+        """
+        데이터 파일 로드
+
+        파일 형식에 따라 자동으로 로드:
+        - Excel (.xlsx, .xls): xlwings로 로드 (회사 내부 이슈)
+        - Parquet (.parquet): pandas로 로드
+        - CSV (.csv): pandas로 로드
+        """
         try:
-            if file_path.endswith('.csv'):
-                return pd.read_csv(file_path)
-            elif file_path.endswith(('.xlsx', '.xls')):
-                return pd.read_excel(file_path)
-            else:
-                self.logger.error(f"지원하지 않는 파일 형식: {file_path}")
-                return None
+            return utils.load_file(file_path, logger=self.logger)
         except Exception as e:
             self.logger.error(f"파일 로드 오류: {e}")
             return None

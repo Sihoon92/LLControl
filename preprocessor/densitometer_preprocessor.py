@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 import os
 import logging
+import utils
 
 
 class DensitometerPreprocessor:
@@ -151,7 +152,7 @@ class DensitometerPreprocessor:
         # 1. 구간 정보 파일 로드
         self.logger.info(f"  [1단계] '{regions_file}' 파일 로드 중...")
         try:
-            regions_df = pd.read_excel(regions_file)
+            regions_df = utils.load_file(regions_file, logger=self.logger)
             self.logger.info(f"    ✓ {len(regions_df)} 개의 구간 정보 로드 완료")
             self.logger.debug(f"    칼럼: {list(regions_df.columns)}")
         except FileNotFoundError:
@@ -175,14 +176,8 @@ class DensitometerPreprocessor:
         # 2. 밀도계 raw data 로드 (캐싱된 경우 재사용)
         self.logger.info(f"  [2단계] 밀도계 raw data 로드 중...")
         try:
-            # CSV 또는 Excel 파일 형식에 따라 로드
-            if raw_data_file.endswith('.csv'):
-                raw_df = pd.read_csv(raw_data_file)
-            elif raw_data_file.endswith(('.xlsx', '.xls')):
-                raw_df = pd.read_excel(raw_data_file)
-            else:
-                self.logger.error("    ✗ 지원하지 않는 파일 형식입니다.")
-                return None
+            # 파일 형식에 따라 자동 로드 (Excel: xlwings, CSV/Parquet: pandas)
+            raw_df = utils.load_file(raw_data_file, logger=self.logger)
 
             self.logger.info(f"    ✓ {len(raw_df)} 행, {len(raw_df.columns)} 칼럼 로드 완료")
             self.logger.debug(f"    첫 번째 칼럼 (time): {raw_df.columns[0]}")
