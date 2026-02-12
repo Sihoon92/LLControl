@@ -28,103 +28,11 @@ class DensitometerPreprocessor:
         self.logger = logger or logging.getLogger('coating_preprocessor.densitometer')
         self.extracted_data = None
 
-    def run_from_meaningful_changes(
-        self,
-        meaningful_changes_file: str,
-        raw_data_file: str,
-        before_minutes: Optional[int] = None,
-        after_minutes: Optional[int] = None
-    ) -> pd.DataFrame:
-        """
-        3rd_meaningful_changes 파일에서 직접 밀도계 데이터 추출
-        (v1.2 호환 메서드)
-
-        Parameters:
-        -----------
-        meaningful_changes_file : str
-            3rd_meaningful_changes.xlsx 파일
-        raw_data_file : str
-            밀도계 raw data 파일
-        before_minutes : int, optional
-            start_time 기준 이전 추출 시간 (분)
-            None이면 config 값 사용 (기본: 1분)
-        after_minutes : int, optional
-            end_time 기준 이후 추출 시간 (분)
-            None이면 config 값 사용 (기본: 6분)
-
-        Returns:
-        --------
-        pd.DataFrame
-            추출된 밀도계 데이터
-        """
-        # Config 기본값 사용
-        if before_minutes is None:
-            before_minutes = self.config.BEFORE_MINUTES
-        if after_minutes is None:
-            after_minutes = self.config.AFTER_MINUTES
-
-        self.logger.info("="*80)
-        self.logger.info("밀도계 데이터 추출 시작 (3rd_meaningful_changes)")
-        self.logger.info("="*80)
-        self.logger.info(f"Changes 파일: {meaningful_changes_file}")
-        self.logger.info(f"Raw data 파일: {raw_data_file}")
-        self.logger.info(f"추출 범위: start_time - {before_minutes}분 ~ end_time + {after_minutes}분")
-        self.logger.info("="*80)
-
-        # 데이터 추출
-        self.extracted_data = self.extract_densitometer_data(
-            regions_file=meaningful_changes_file,
-            raw_data_file=raw_data_file,
-            control_type='controlled',
-            before_minutes=before_minutes,
-            after_minutes=after_minutes
-        )
-
-        if self.extracted_data is None or self.extracted_data.empty:
-            self.logger.warning("추출된 데이터가 없습니다.")
-            return pd.DataFrame()
-
-        # 결과 저장
-        output_file = os.path.join(
-            self.config.OUTPUT_DIR,
-            self.config.OUTPUT_DENSITOMETER
-        )
-
-        try:
-            if output_file.endswith('.csv'):
-                self.extracted_data.to_csv(output_file, index=False, encoding='utf-8-sig')
-            elif output_file.endswith(('.xlsx', '.xls')):
-                self.extracted_data.to_excel(output_file, index=False)
-            else:
-                output_file = output_file + '.xlsx'
-                self.extracted_data.to_excel(output_file, index=False)
-
-            self.logger.info(f"✓ '{output_file}' 파일로 저장 완료")
-
-            # 통계 정보 출력
-            self.logger.info("="*80)
-            self.logger.info("추출 완료 통계")
-            self.logger.info("="*80)
-            self.logger.info(f"총 Group 수: {self.extracted_data['group_id'].nunique()}")
-            self.logger.info(f"총 데이터 행 수: {len(self.extracted_data)}")
-            self.logger.info(f"Before 데이터: {(self.extracted_data['before/after'] == 'before').sum()} 행")
-            self.logger.info(f"After 데이터: {(self.extracted_data['before/after'] == 'after').sum()} 행")
-            self.logger.info(f"총 칼럼 수: {len(self.extracted_data.columns)}")
-            self.logger.info("="*80)
-
-        except Exception as e:
-            self.logger.error(f"✗ 저장 오류: {e}", exc_info=True)
-            return None
-
-        return self.extracted_data
-
     def run(
         self,
         control_regions_file: str,
         no_control_regions_file: str,
-        raw_data_file: str,
-        before_minutes: Optional[int] = None,
-        after_minutes: Optional[int] = None
+        raw_data_file: str
     ) -> pd.DataFrame:
         """
         밀도계 데이터 추출 실행 (제어 구간 + 비제어 구간)
@@ -137,31 +45,18 @@ class DensitometerPreprocessor:
             비제어 구간 정보 파일 (5th_no_control_regions.xlsx)
         raw_data_file : str
             밀도계 raw data 파일
-        before_minutes : int, optional
-            start_time 기준 이전 추출 시간 (분)
-            None이면 config 값 사용
-        after_minutes : int, optional
-            end_time 기준 이후 추출 시간 (분)
-            None이면 config 값 사용
 
         Returns:
         --------
         pd.DataFrame
             추출된 밀도계 데이터 (제어 + 비제어)
         """
-        # Config 기본값 사용
-        if before_minutes is None:
-            before_minutes = self.config.BEFORE_MINUTES
-        if after_minutes is None:
-            after_minutes = self.config.AFTER_MINUTES
-
         self.logger.info("="*80)
         self.logger.info("밀도계 데이터 추출 시작 (v1.3 - 제어/비제어 구간 포함)")
         self.logger.info("="*80)
         self.logger.info(f"제어 구간 파일: {control_regions_file}")
         self.logger.info(f"비제어 구간 파일: {no_control_regions_file}")
         self.logger.info(f"Raw data 파일: {raw_data_file}")
-        self.logger.info(f"추출 범위: start_time - {before_minutes}분 ~ end_time + {after_minutes}분")
         self.logger.info("="*80)
 
         # 제어 구간 데이터 추출
@@ -169,9 +64,7 @@ class DensitometerPreprocessor:
         control_data = self.extract_densitometer_data(
             regions_file=control_regions_file,
             raw_data_file=raw_data_file,
-            control_type='controlled',
-            before_minutes=before_minutes,
-            after_minutes=after_minutes
+            control_type='controlled'
         )
 
         # 비제어 구간 데이터 추출
@@ -179,9 +72,7 @@ class DensitometerPreprocessor:
         no_control_data = self.extract_densitometer_data(
             regions_file=no_control_regions_file,
             raw_data_file=raw_data_file,
-            control_type='no_control',
-            before_minutes=before_minutes,
-            after_minutes=after_minutes
+            control_type='no_control'
         )
 
         # 데이터 통합
@@ -238,9 +129,7 @@ class DensitometerPreprocessor:
         self,
         regions_file: str,
         raw_data_file: str,
-        control_type: str = 'controlled',
-        before_minutes: int = 0,
-        after_minutes: int = 0
+        control_type: str = 'controlled'
     ) -> Optional[pd.DataFrame]:
         """
         구간 정보에 따라 밀도계 데이터 추출
@@ -248,17 +137,11 @@ class DensitometerPreprocessor:
         Parameters:
         -----------
         regions_file : str
-            구간 정보 파일 (4th or 5th or 3rd)
+            구간 정보 파일 (4th or 5th)
         raw_data_file : str
             밀도계 raw data 파일
         control_type : str
             'controlled' 또는 'no_control'
-        before_minutes : int
-            start_time 기준 이전 추출 시간 (분)
-            0이면 start_time 그대로 사용
-        after_minutes : int
-            end_time 기준 이후 추출 시간 (분)
-            0이면 end_time 그대로 사용
 
         Returns:
         --------
@@ -344,9 +227,6 @@ class DensitometerPreprocessor:
 
         # 6. 각 구간에 대해 데이터 추출
         self.logger.info(f"  [6단계] 구간별 데이터 추출 중...")
-        if before_minutes > 0 or after_minutes > 0:
-            self.logger.info(f"    - start_time 기준 {before_minutes}분 전부터 추출")
-            self.logger.info(f"    - end_time 기준 {after_minutes}분 후까지 추출")
 
         extracted_data_list = []
 
@@ -356,17 +236,12 @@ class DensitometerPreprocessor:
             start_time = self._parse_time(str(row['start_time']))
             end_time = self._parse_time(str(row['end_time']))
 
-            # 실제 추출 시간 범위 계산
-            # before_minutes/after_minutes가 0이면 start_time/end_time 그대로 사용
-            extract_start = start_time - timedelta(minutes=before_minutes)
-            extract_end = end_time + timedelta(minutes=after_minutes)
-
             # 해당 시간 범위의 데이터 필터링
-            mask = (raw_df['datetime'] >= extract_start) & (raw_df['datetime'] <= extract_end)
+            mask = (raw_df['datetime'] >= start_time) & (raw_df['datetime'] <= end_time)
             group_data = raw_df[mask].copy()
 
             if len(group_data) == 0:
-                self.logger.warning(f"    ⚠ Group {group_id}: 데이터 없음 (시간 범위: {extract_start} ~ {extract_end})")
+                self.logger.warning(f"    ⚠ Group {group_id}: 데이터 없음 (시간 범위: {start_time} ~ {end_time})")
                 continue
 
             # before/after 구분
