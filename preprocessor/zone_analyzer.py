@@ -530,21 +530,16 @@ class ZoneAnalyzer:
                     filtered_df = df
                 else:
                     # 시간 범위에 해당하는 데이터 필터링
-                    time_masks = []
-                    for _, group_row in matching_groups.iterrows():
-                        if 'start_time' in group_row and 'end_time' in group_row:
-                            start = group_row['start_time']
-                            end = group_row['end_time']
-                            mask = (df[time_col] >= start) & (df[time_col] <= end)
-                            time_masks.append(mask)
+                    # 모든 rows에서 가장 빠른 시작 시간과 가장 늦은 종료 시간 구하기
+                    if 'start_time' in matching_groups.columns and 'end_time' in matching_groups.columns:
+                        min_start_time = matching_groups['start_time'].min()
+                        max_end_time = matching_groups['end_time'].max()
 
-                    if time_masks:
-                        # 모든 마스크를 OR로 결합
-                        combined_mask = time_masks[0]
-                        for mask in time_masks[1:]:
-                            combined_mask = combined_mask | mask
+                        self.logger.info(f"전체 시간 범위: {min_start_time} ~ {max_end_time}")
 
-                        filtered_df = df[combined_mask]
+                        # 한 번의 mask로 필터링
+                        mask = (df[time_col] >= min_start_time) & (df[time_col] <= max_end_time)
+                        filtered_df = df[mask]
                         self.logger.info(f"시간 필터링: {len(df)} → {len(filtered_df)} 행")
                     else:
                         self.logger.warning("시간 범위를 찾을 수 없습니다. 전체 데이터 사용")
