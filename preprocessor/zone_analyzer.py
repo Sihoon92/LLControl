@@ -487,13 +487,16 @@ class ZoneAnalyzer:
 
             # 각 칼럼별로 0 이상 데이터 비율 계산
             valid_ratios = []
+            valid_counts = []
             for col in value_columns:
                 valid_count = (df[col] > 0).sum()
+                valid_counts.append(valid_count)
                 total_count = len(df)
                 ratio = valid_count / total_count if total_count > 0 else 0
                 valid_ratios.append(ratio)
 
             valid_ratios = np.array(valid_ratios)
+            valid_counts = np.array(valid_counts)
 
         else:
             # 1. UCL/LCL 값이 동일한 그룹 찾기
@@ -503,7 +506,8 @@ class ZoneAnalyzer:
 
             if len(ucl_lcl_counts) == 0:
                 self.logger.warning("유효한 UCL/LCL 쌍을 찾을 수 없습니다. 기본 방식 사용")
-                valid_ratios = np.array([(df[col] > 0).sum() / len(df) for col in value_columns])
+                valid_counts = np.array([(df[col] > 0).sum() for col in value_columns])
+                valid_ratios = np.array([count / len(df) for count in valid_counts])
             else:
                 # 가장 빈도가 높은 UCL/LCL 쌍 선택
                 most_common_ucl = ucl_lcl_counts.iloc[0]['UCL']
@@ -547,30 +551,55 @@ class ZoneAnalyzer:
 
                 # 3. 필터링된 데이터에서 각 칼럼별로 USL/LSL 범위 내 비율 계산
                 valid_ratios = []
+                valid_counts = []
                 for col in value_columns:
                     # USL/LSL 범위 내 데이터 개수
                     within_range = ((filtered_df[col] >= most_common_lcl) &
                                    (filtered_df[col] <= most_common_ucl)).sum()
                     # 유효한 데이터 개수 (0 이상)
                     valid_count = (filtered_df[col] > 0).sum()
+                    valid_counts.append(valid_count)
                     # 비율 계산
                     ratio = within_range / valid_count if valid_count > 0 else 0
                     valid_ratios.append(ratio)
 
                 valid_ratios = np.array(valid_ratios)
+                valid_counts = np.array(valid_counts)
 
-        # Left boundary: 왼쪽에서 오른쪽으로 이동하면서 threshold 이상인 첫 칼럼
+        # Valid count 기반 최소 임계값 설정
+        # 중앙값의 30%를 사용 (이상치에 강건하면서도 적절한 필터링)
+        valid_counts_positive = valid_counts[valid_counts > 0]
+        if len(valid_counts_positive) > 0:
+            median_count = np.median(valid_counts_positive)
+            mean_count = np.mean(valid_counts_positive)
+            percentile_25 = np.percentile(valid_counts_positive, 25)
+
+            # 최소 임계값: 중앙값의 30% (추천)
+            min_valid_count = median_count * 0.3
+
+            self.logger.info(f"Valid count 통계:")
+            self.logger.info(f"  - 평균: {mean_count:.1f}")
+            self.logger.info(f"  - 중앙값: {median_count:.1f}")
+            self.logger.info(f"  - 25 백분위수: {percentile_25:.1f}")
+            self.logger.info(f"  - 최소 임계값: {min_valid_count:.1f} (중앙값의 30%)")
+        else:
+            min_valid_count = 0
+            self.logger.warning("유효한 valid_count가 없습니다. 최소 임계값을 0으로 설정")
+
+        # Left boundary: 왼쪽에서 오른쪽으로 이동하면서 threshold 이상이고 valid_count >= min_valid_count인 첫 칼럼
         left_boundary = None
         for i in range(n_cols):
-            if valid_ratios[i] >= threshold:
+            if valid_ratios[i] >= threshold and valid_counts[i] >= min_valid_count:
                 left_boundary = i
+                self.logger.debug(f"  Left boundary 후보 {i}: ratio={valid_ratios[i]:.3f}, count={valid_counts[i]:.0f}")
                 break
 
-        # Right boundary: 오른쪽에서 왼쪽으로 이동하면서 threshold 이상인 첫 칼럼
+        # Right boundary: 오른쪽에서 왼쪽으로 이동하면서 threshold 이상이고 valid_count >= min_valid_count인 첫 칼럼
         right_boundary = None
         for i in range(n_cols - 1, -1, -1):
-            if valid_ratios[i] >= threshold:
+            if valid_ratios[i] >= threshold and valid_counts[i] >= min_valid_count:
                 right_boundary = i
+                self.logger.debug(f"  Right boundary 후보 {i}: ratio={valid_ratios[i]:.3f}, count={valid_counts[i]:.0f}")
                 break
 
         if left_boundary is None or right_boundary is None:
@@ -580,8 +609,10 @@ class ZoneAnalyzer:
 
         self.logger.info(f"✓ Left Boundary: 칼럼 인덱스 {left_boundary} ({value_columns[left_boundary]})")
         self.logger.info(f"  - USL/LSL 범위 내 비율: {valid_ratios[left_boundary]*100:.2f}%")
+        self.logger.info(f"  - Valid count: {valid_counts[left_boundary]:.0f}")
         self.logger.info(f"✓ Right Boundary: 칼럼 인덱스 {right_boundary} ({value_columns[right_boundary]})")
         self.logger.info(f"  - USL/LSL 범위 내 비율: {valid_ratios[right_boundary]*100:.2f}%")
+        self.logger.info(f"  - Valid count: {valid_counts[right_boundary]:.0f}")
         self.logger.info(f"✓ 추출 범위: {right_boundary - left_boundary + 1} 개 칼럼")
         self.logger.info("="*80)
 
