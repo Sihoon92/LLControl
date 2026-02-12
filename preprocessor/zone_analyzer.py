@@ -157,11 +157,21 @@ class ZoneAnalyzer:
 
         self.logger.info(f"   ✓ {len(value_columns)}개 Value 칼럼 발견")
 
-        # 경계 검출
+        # 평균 UCL/LCL 계산 (경계 검출용)
+        avg_ucl = None
+        avg_lcl = None
+        if 'UCL' in meaningful_changes.columns and 'LCL' in meaningful_changes.columns:
+            avg_ucl = meaningful_changes['UCL'].mean()
+            avg_lcl = meaningful_changes['LCL'].mean()
+            self.logger.info(f"   평균 UCL: {avg_ucl:.4f}, 평균 LCL: {avg_lcl:.4f}")
+
+        # 경계 검출 (USL/LSL 범위 내 데이터 비율 기준)
         left_boundary, right_boundary = self.find_boundaries(
             densitometer_data,
             value_columns,
-            self.config.BOUNDARY_THRESHOLD
+            self.config.BOUNDARY_THRESHOLD,
+            ucl=avg_ucl,
+            lcl=avg_lcl
         )
         valid_value_columns = value_columns[left_boundary:right_boundary+1]
 
@@ -282,11 +292,21 @@ class ZoneAnalyzer:
             value_columns = [col for col in densitometer_data.columns
                             if col not in ['group_id', 'control_type', 'before/after', 'time', 'Time', 'TIME']]
 
-        # 경계 검출
+        # 평균 UCL/LCL 계산 (경계 검출용)
+        avg_ucl = None
+        avg_lcl = None
+        if 'UCL' in meaningful_changes.columns and 'LCL' in meaningful_changes.columns:
+            avg_ucl = meaningful_changes['UCL'].mean()
+            avg_lcl = meaningful_changes['LCL'].mean()
+            self.logger.info(f"평균 UCL: {avg_ucl:.4f}, 평균 LCL: {avg_lcl:.4f}")
+
+        # 경계 검출 (USL/LSL 범위 내 데이터 비율 기준)
         left_boundary, right_boundary = self.find_boundaries(
             densitometer_data,
             value_columns,
-            self.config.BOUNDARY_THRESHOLD
+            self.config.BOUNDARY_THRESHOLD,
+            ucl=avg_ucl,
+            lcl=avg_lcl
         )
         valid_value_columns = value_columns[left_boundary:right_boundary+1]
 
@@ -333,7 +353,9 @@ class ZoneAnalyzer:
                 after_data = group_data[group_data['before/after'] == 'after'][zone_cols].values.flatten()
                 after_data = after_data[after_data > 0]
 
+                # Count가 0인 경우 제외 (통계 분석 불가)
                 if len(before_data) == 0 or len(after_data) == 0:
+                    self.logger.warning(f"Group {group_id}, Zone {zone_id}: before_count={len(before_data)}, after_count={len(after_data)} - 통계 분석 건너뜀")
                     continue
 
                 # 통계 분석 수행
@@ -388,7 +410,9 @@ class ZoneAnalyzer:
                 after_data = group_data[group_data['before/after'] == 'after'][zone_cols].values.flatten()
                 after_data = after_data[after_data > 0]
 
+                # Count가 0인 경우 제외 (통계 분석 불가)
                 if len(before_data) == 0 or len(after_data) == 0:
+                    self.logger.warning(f"Group {group_id}, Zone {zone_id}: before_count={len(before_data)}, after_count={len(after_data)} - 통계 분석 건너뜀")
                     continue
 
                 # 통계 분석 수행
@@ -440,10 +464,14 @@ class ZoneAnalyzer:
         self,
         df: pd.DataFrame,
         value_columns: List[str],
-        threshold: float = 0.9
+        threshold: float = 0.9,
+        ucl: float = None,
+        lcl: float = None
     ) -> Tuple[int, int]:
         """
         유의미한 데이터가 있는 좌/우 경계(boundary) 검출
+
+        USL/LSL 범위 내에 들어오는 데이터 비율을 기준으로 경계 검출
 
         Parameters:
         -----------
@@ -452,7 +480,11 @@ class ZoneAnalyzer:
         value_columns : List[str]
             Value 칼럼 리스트
         threshold : float
-            0 이상 데이터 비율 임계값 (기본값: 0.9 = 90%)
+            USL/LSL 범위 내 데이터 비율 임계값 (기본값: 0.9 = 90%)
+        ucl : float, optional
+            Upper Control Limit (USL)
+        lcl : float, optional
+            Lower Control Limit (LSL)
 
         Returns:
         --------
@@ -462,28 +494,48 @@ class ZoneAnalyzer:
         self.logger.info("="*80)
         self.logger.info("경계(Boundary) 검출 시작")
         self.logger.info("="*80)
-        self.logger.info(f"임계값: {threshold*100:.0f}% (0 이상 데이터 비율)")
+        self.logger.info(f"임계값: {threshold*100:.0f}% (USL/LSL 범위 내 데이터 비율)")
 
         n_cols = len(value_columns)
 
-        # 각 칼럼별로 0 이상 데이터 비율 계산
-        valid_ratios = []
-        for col in value_columns:
-            valid_count = (df[col] > 0).sum()
-            total_count = len(df)
-            ratio = valid_count / total_count if total_count > 0 else 0
-            valid_ratios.append(ratio)
+        # UCL/LCL이 없으면 기존 방식 (0 이상 데이터 비율) 사용
+        if ucl is None or lcl is None or pd.isna(ucl) or pd.isna(lcl):
+            self.logger.warning("UCL/LCL 정보가 없습니다. 0 이상 데이터 비율 방식 사용")
 
-        valid_ratios = np.array(valid_ratios)
+            # 각 칼럼별로 0 이상 데이터 비율 계산
+            valid_ratios = []
+            for col in value_columns:
+                valid_count = (df[col] > 0).sum()
+                total_count = len(df)
+                ratio = valid_count / total_count if total_count > 0 else 0
+                valid_ratios.append(ratio)
 
-        # Left boundary
+            valid_ratios = np.array(valid_ratios)
+
+        else:
+            self.logger.info(f"UCL: {ucl:.4f}, LCL: {lcl:.4f}")
+
+            # 각 칼럼별로 USL/LSL 범위 내 데이터 비율 계산
+            valid_ratios = []
+            for col in value_columns:
+                # USL/LSL 범위 내 데이터 개수
+                within_range = ((df[col] >= lcl) & (df[col] <= ucl)).sum()
+                # 유효한 데이터 개수 (0 이상)
+                valid_count = (df[col] > 0).sum()
+                # 비율 계산
+                ratio = within_range / valid_count if valid_count > 0 else 0
+                valid_ratios.append(ratio)
+
+            valid_ratios = np.array(valid_ratios)
+
+        # Left boundary: 왼쪽에서 오른쪽으로 이동하면서 threshold 이상인 첫 칼럼
         left_boundary = None
         for i in range(n_cols):
             if valid_ratios[i] >= threshold:
                 left_boundary = i
                 break
 
-        # Right boundary
+        # Right boundary: 오른쪽에서 왼쪽으로 이동하면서 threshold 이상인 첫 칼럼
         right_boundary = None
         for i in range(n_cols - 1, -1, -1):
             if valid_ratios[i] >= threshold:
@@ -491,14 +543,14 @@ class ZoneAnalyzer:
                 break
 
         if left_boundary is None or right_boundary is None:
-            self.logger.warning("유효한 경계를 찾지 못했습니다.")
+            self.logger.warning("유효한 경계를 찾지 못했습니다. 전체 범위 사용")
             left_boundary = 0
             right_boundary = n_cols - 1
 
         self.logger.info(f"✓ Left Boundary: 칼럼 인덱스 {left_boundary} ({value_columns[left_boundary]})")
-        self.logger.info(f"  - 유효 데이터 비율: {valid_ratios[left_boundary]*100:.2f}%")
+        self.logger.info(f"  - USL/LSL 범위 내 비율: {valid_ratios[left_boundary]*100:.2f}%")
         self.logger.info(f"✓ Right Boundary: 칼럼 인덱스 {right_boundary} ({value_columns[right_boundary]})")
-        self.logger.info(f"  - 유효 데이터 비율: {valid_ratios[right_boundary]*100:.2f}%")
+        self.logger.info(f"  - USL/LSL 범위 내 비율: {valid_ratios[right_boundary]*100:.2f}%")
         self.logger.info(f"✓ 추출 범위: {right_boundary - left_boundary + 1} 개 칼럼")
         self.logger.info("="*80)
 

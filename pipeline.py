@@ -49,7 +49,7 @@ class CoatingPreprocessPipeline:
         # 전처리 모듈 초기화
         self.apc_preprocessor = APCPreprocessor(self.config, self.logger)
         self.densitometer_preprocessor = DensitometerPreprocessor(self.config, self.logger)
-        self.zone_analyzer = ZoneAnalyzer(self.config, self.logger)
+        self.zone_analyzer = ZoneAnalyzer(self.config, logger=self.logger)  # 파라미터 명시적 지정
         self.data_merger = DataMerger(self.logger)
         self.model_data_preparator = ModelDataPreparator(self.config, self.logger)
 
