@@ -246,9 +246,20 @@ class DensitometerPreprocessor:
 
             # before/after 구분
             if control_type == 'controlled':
-                # 제어 구간: control_start 기준으로 before/after 구분
+                # 제어 구간: control_start ~ control_end 데이터 제외하고 before/after 구분
                 if 'control_start' in row and not pd.isna(row['control_start']):
                     control_start = self._parse_time(str(row['control_start']))
+                    control_end = self._parse_time(str(row['control_end']))
+
+                    # control_start ~ control_end 구간 제외
+                    group_data = group_data[
+                        (group_data['datetime'] < control_start) |
+                        (group_data['datetime'] > control_end)
+                    ].copy()
+
+                    # before/after 구분 (control_start 기준)
+                    # - before: control_start 이전 1분 구간
+                    # - after: control_end 이후 6분 구간
                     group_data['before/after'] = group_data['datetime'].apply(
                         lambda x: 'before' if x < control_start else 'after'
                     )
