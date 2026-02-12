@@ -111,11 +111,20 @@ class CoatingPreprocessPipeline:
 
         # Step 2: 밀도계 데이터 추출
         self.logger.info("[Step 2] 밀도계 데이터 추출")
+
+        # 제어 구간 및 비제어 구간 파일 경로
+        control_regions_file = os.path.join(
+            self.config.OUTPUT_DIR,
+            self.config.OUTPUT_4TH_CONTROL
+        )
+        no_control_regions_file = os.path.join(
+            self.config.OUTPUT_DIR,
+            self.config.OUTPUT_5TH_NO_CONTROL
+        )
+
         extracted_data = self.densitometer_preprocessor.run(
-            changes_file=os.path.join(
-                self.config.OUTPUT_DIR,
-                self.config.OUTPUT_3RD
-            ),
+            control_regions_file=control_regions_file,
+            no_control_regions_file=no_control_regions_file,
             raw_data_file=densitometer_file
         )
 
