@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from typing import Tuple, Optional, List
 import os
 import logging
+import utils
 
 
 class APCPreprocessor:
@@ -68,7 +69,7 @@ class APCPreprocessor:
 
         # 1차 결과 저장
         output_1st = os.path.join(self.config.OUTPUT_DIR, self.config.OUTPUT_1ST)
-        self._save_to_excel(self.changes_df, output_1st, 'All_Changes')
+        utils.save_to_excel(self.changes_df, output_1st, sheet_name='All_Changes', logger=self.logger)
 
         # 2차 전처리: 그룹화
         self.logger.info("[2차 전처리] 변경 구간 그룹화")
@@ -80,7 +81,7 @@ class APCPreprocessor:
         # 그룹 요약 정보 생성
         summary_df = self.create_grouped_summary(self.grouped_changes)
         output_2nd = os.path.join(self.config.OUTPUT_DIR, self.config.OUTPUT_2ND)
-        self._save_to_excel(summary_df, output_2nd, 'Grouped_Changes')
+        utils.save_to_excel(summary_df, output_2nd, sheet_name='Grouped_Changes', logger=self.logger)
 
         # 3차 전처리: 유의미한 변경 구간 필터링
         self.logger.info("[3차 전처리] 유의미한 변경 구간 필터링")
@@ -108,7 +109,7 @@ class APCPreprocessor:
 
         # 최종 결과 저장
         output_3rd = os.path.join(self.config.OUTPUT_DIR, self.config.OUTPUT_3RD)
-        self._save_to_excel(self.meaningful_df, output_3rd, 'Meaningful_Changes')
+        utils.save_to_excel(self.meaningful_df, output_3rd, sheet_name='Meaningful_Changes', logger=self.logger)
 
         # ===== NEW: 4차 전처리 - 제어 구간 정보 저장 =====
         self.logger.info("[4차 전처리] 제어 구간 정보 저장")
@@ -118,7 +119,7 @@ class APCPreprocessor:
             self.config.AFTER_MINUTES
         )
         output_4th = os.path.join(self.config.OUTPUT_DIR, self.config.OUTPUT_4TH_CONTROL)
-        self._save_to_excel(self.control_regions_df, output_4th, 'Control_Regions')
+        utils.save_to_excel(self.control_regions_df, output_4th, sheet_name='Control_Regions', logger=self.logger)
 
         # ===== NEW: 5차 전처리 - 비제어 구간 샘플링 =====
         self.logger.info("[5차 전처리] 비제어 구간 샘플링")
@@ -132,7 +133,7 @@ class APCPreprocessor:
 
         if self.no_control_regions_df is not None and not self.no_control_regions_df.empty:
             output_5th = os.path.join(self.config.OUTPUT_DIR, self.config.OUTPUT_5TH_NO_CONTROL)
-            self._save_to_excel(self.no_control_regions_df, output_5th, 'No_Control_Regions')
+            utils.save_to_excel(self.no_control_regions_df, output_5th, sheet_name='No_Control_Regions', logger=self.logger)
 
         # 최종 통계
         self.logger.info("="*80)
@@ -165,32 +166,23 @@ class APCPreprocessor:
         Parameters:
         -----------
         file_path : str
-            엑셀 파일 경로
+            데이터 파일 경로 (Excel, Parquet, CSV 지원)
         sheet_name : str, optional
-            시트 이름 (None이면 첫 번째 시트)
+            시트 이름 (Excel 파일의 경우, None이면 첫 번째 시트)
 
         Returns:
         --------
         Tuple[pd.DataFrame, pd.DataFrame]
             (변경 사항 DataFrame, 필터링된 원본 DataFrame)
         """
-        app = xw.App(visible=False)
         try:
-            wb = xw.Book(file_path)
-
-            # 시트 선택
-            if sheet_name is None:
-                sheet = wb.sheets[0]
-            else:
-                sheet = wb.sheets[sheet_name]
-
-            # 데이터 읽기
-            used_range = sheet.used_range
-            data = used_range.value
-
-            # DataFrame 생성
-            headers = data[0]
-            df = pd.DataFrame(data[1:], columns=headers)
+            # 파일 형식에 따라 자동 로드 (Excel/Parquet/CSV)
+            # Excel: xlwings, Parquet/CSV: pandas
+            df = utils.load_file(
+                file_path,
+                sheet_name=sheet_name if sheet_name else 0,
+                logger=self.logger
+            )
 
             # SIDE 필터링
             self.logger.info(f"원본 데이터 행 수: {len(df)}")
@@ -268,9 +260,6 @@ class APCPreprocessor:
         except Exception as e:
             self.logger.error(f"오류: {e}", exc_info=True)
             return None, None
-        finally:
-            wb.close()
-            app.quit()
 
     def group_changes_by_time(
         self,
@@ -752,28 +741,53 @@ class APCPreprocessor:
         self.logger.info("Loading Level Spec 데이터 로드 중...")
         self.logger.info("="*80)
 
-        app = xw.App(visible=False)
+        # 파일 확장자 확인
+        file_ext = os.path.splitext(llspec_file)[1].lower()
+
+        # Excel 파일의 경우 멀티레벨 헤더 처리를 위해 xlwings 사용
+        if file_ext in ['.xlsx', '.xls']:
+            app = xw.App(visible=False)
+            wb = None
+            try:
+                wb = xw.Book(llspec_file)
+                sheet = wb.sheets[0]
+
+                # 데이터 읽기
+                used_range = sheet.used_range
+                data = used_range.value
+
+                # 헤더 처리 (멀티레벨 헤더 가능성)
+                headers_row1 = data[0]
+                headers_row2 = data[1] if len(data) > 1 else None
+
+                # DataFrame 생성
+                if headers_row2:
+                    # 멀티레벨 헤더 처리
+                    df = pd.DataFrame(data[2:], columns=headers_row2)
+                else:
+                    df = pd.DataFrame(data[1:], columns=headers_row1)
+
+                self.logger.info(f"Excel 파일 로드 완료 (xlwings)")
+            except Exception as e:
+                self.logger.error(f"Excel 파일 로드 오류: {e}", exc_info=True)
+                return None
+            finally:
+                if wb:
+                    wb.close()
+                app.quit()
+        else:
+            # Parquet/CSV 파일의 경우 utils.load_file() 사용
+            try:
+                df = utils.load_file(llspec_file, logger=self.logger)
+                self.logger.info(f"파일 로드 완료 (utils.load_file)")
+            except Exception as e:
+                self.logger.error(f"파일 로드 오류: {e}", exc_info=True)
+                return None
+
+        self.logger.info(f"원본 LLspec 데이터 행 수: {len(df)}")
+        self.logger.debug(f"원본 칼럼: {list(df.columns)}")
+
         try:
-            wb = xw.Book(llspec_file)
-            sheet = wb.sheets[0]
-
-            # 데이터 읽기
-            used_range = sheet.used_range
-            data = used_range.value
-
-            # 헤더 처리 (멀티레벨 헤더 가능성)
-            headers_row1 = data[0]
-            headers_row2 = data[1] if len(data) > 1 else None
-
-            # DataFrame 생성
-            if headers_row2:
-                # 멀티레벨 헤더 처리
-                df = pd.DataFrame(data[2:], columns=headers_row2)
-            else:
-                df = pd.DataFrame(data[1:], columns=headers_row1)
-
-            self.logger.info(f"원본 LLspec 데이터 행 수: {len(df)}")
-            self.logger.debug(f"원본 칼럼: {list(df.columns)}")
 
             # SIDE 필터링
             if self.config.SIDE_COL in df.columns:
@@ -854,9 +868,6 @@ class APCPreprocessor:
         except Exception as e:
             self.logger.error(f"오류: {e}", exc_info=True)
             return None
-        finally:
-            wb.close()
-            app.quit()
 
     def match_llspec_to_groups(
         self,
@@ -933,38 +944,3 @@ class APCPreprocessor:
         self.logger.info("="*80)
 
         return meaningful_df
-
-    def _save_to_excel(
-        self,
-        df: pd.DataFrame,
-        output_path: str,
-        sheet_name: str = 'Sheet1'
-    ):
-        """DataFrame을 엑셀로 저장"""
-        if df is None or df.empty:
-            self.logger.warning(f"저장할 데이터가 없습니다: {output_path}")
-            return
-
-        app = xw.App(visible=False)
-        try:
-            wb = xw.Book()
-            sheet = wb.sheets[0]
-            sheet.name = sheet_name
-
-            # DataFrame을 엑셀에 쓰기
-            sheet.range('A1').value = df
-
-            # 포맷 설정
-            sheet.range('A1').expand('right').api.Font.Bold = True
-            sheet.autofit()
-
-            # 저장
-            wb.save(output_path)
-            self.logger.info(f"저장 완료: '{output_path}'")
-
-        except Exception as e:
-            self.logger.error(f"저장 오류: {e}", exc_info=True)
-            raise
-        finally:
-            wb.close()
-            app.quit()
