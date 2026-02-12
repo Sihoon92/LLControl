@@ -794,6 +794,27 @@ class ZoneAnalyzer:
             if len(after_zone_data) > 0:
                 self.logger.debug(f"After: {len(after_zone_data):,}개 데이터 (평균: {after_zone_data.mean():.4f})")
 
+        # Zone별 분석 완료 후, div count 검증
+        # 모든 zone의 모든 div에서 before_count와 after_count가 0이 아닌지 확인
+        has_zero_count = False
+        for zone_result in zone_results:
+            for i in range(n_divisions):
+                before_count = zone_result[f'div_{i+1}_before_count']
+                after_count = zone_result[f'div_{i+1}_after_count']
+                if before_count == 0 or after_count == 0:
+                    has_zero_count = True
+                    self.logger.warning(
+                        f"Group {group_id}, Zone {zone_result['zone_id']}, "
+                        f"Div {i+1}: before_count={before_count}, after_count={after_count} - 0 발견"
+                    )
+                    break
+            if has_zero_count:
+                break
+
+        if has_zero_count:
+            self.logger.warning(f"Group {group_id}: div count에 0이 포함되어 필터링됨")
+            return None
+
         self.logger.info("="*80)
 
         return {
