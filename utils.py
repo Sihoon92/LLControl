@@ -69,8 +69,37 @@ def setup_logger(
 
     return logger
 
-def save_to_excel(df: pd.DataFrame, output_path: str, sheet_name: str = 'Sheet1', logger: logging.Logger = None):
-    """DataFrame을 엑셀로 저장"""
+def save_to_excel(df: pd.DataFrame, output_path: str, sheet_name: str = 'Sheet1', format: str = 'excel', logger: logging.Logger = None):
+    """
+    DataFrame을 다양한 형식으로 저장
+
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        저장할 데이터프레임
+    output_path : str
+        출력 파일 경로 (확장자 포함)
+    sheet_name : str
+        엑셀 시트 이름 (엑셀 저장 시에만 사용, 기본값: 'Sheet1')
+    format : str
+        저장 형식 ('excel', 'parquet', 'both', 기본값: 'excel')
+        - 'excel': 엑셀만 저장
+        - 'parquet': 파케이만 저장
+        - 'both': 엑셀과 파케이 모두 저장
+    logger : logging.Logger
+        로거
+
+    Examples:
+    ---------
+    >>> # Excel만 저장
+    >>> save_to_excel(df, 'output.xlsx', format='excel')
+    >>>
+    >>> # Parquet만 저장
+    >>> save_to_excel(df, 'output.parquet', format='parquet')
+    >>>
+    >>> # Excel과 Parquet 모두 저장
+    >>> save_to_excel(df, 'output.xlsx', format='both')  # output.xlsx + output.parquet 생성
+    """
     if logger is None:
         logger = logging.getLogger('coating_preprocessor')
 
@@ -78,7 +107,33 @@ def save_to_excel(df: pd.DataFrame, output_path: str, sheet_name: str = 'Sheet1'
         logger.warning(f"저장할 데이터가 없습니다: {output_path}")
         return
 
+    # 파일 경로 및 확장자 처리
+    base_path = os.path.splitext(output_path)[0]
+    excel_path = f"{base_path}.xlsx" if not output_path.endswith('.xlsx') else output_path
+    parquet_path = f"{base_path}.parquet"
+
+    # format에 따라 저장
+    if format == 'excel':
+        _save_to_excel_xlwings(df, excel_path, sheet_name, logger)
+
+    elif format == 'parquet':
+        _save_to_parquet(df, parquet_path, logger)
+
+    elif format == 'both':
+        _save_to_excel_xlwings(df, excel_path, sheet_name, logger)
+        _save_to_parquet(df, parquet_path, logger)
+
+    else:
+        raise ValueError(f"지원하지 않는 형식: {format} (지원: 'excel', 'parquet', 'both')")
+
+
+def _save_to_excel_xlwings(df: pd.DataFrame, output_path: str, sheet_name: str = 'Sheet1', logger: logging.Logger = None):
+    """xlwings를 사용하여 DataFrame을 엑셀로 저장 (내부 함수)"""
+    if logger is None:
+        logger = logging.getLogger('coating_preprocessor')
+
     app = xw.App(visible=False)
+    wb = None
     try:
         wb = xw.Book()
         sheet = wb.sheets[0]
@@ -89,14 +144,124 @@ def save_to_excel(df: pd.DataFrame, output_path: str, sheet_name: str = 'Sheet1'
         sheet.autofit()
 
         wb.save(output_path)
-        logger.info(f"저장 완료: '{output_path}'")
+        logger.info(f"Excel 저장 완료: '{output_path}' ({len(df)} 행, {len(df.columns)} 칼럼)")
 
     except Exception as e:
-        logger.error(f"저장 오류: {e}")
+        logger.error(f"Excel 저장 오류: {e}")
         raise
     finally:
-        wb.close()
+        if wb:
+            wb.close()
         app.quit()
+
+
+def normalize_for_parquet(df: pd.DataFrame, logger: logging.Logger = None) -> pd.DataFrame:
+    """
+    Parquet 저장을 위해 DataFrame을 정규화
+
+    Object 타입 칼럼을 Parquet 호환 타입으로 변환:
+    1. 모든 값이 None/NaN → float(nan) 칼럼으로 변환
+    2. 숫자로 변환 가능한 경우 (절반 이상 성공) → float 칼럼으로 변환
+    3. 문자형 칼럼 → string 타입으로 통일
+    4. datetime 타입 유지
+    5. 리스트/딕셔너리 등 복잡한 타입 → JSON 문자열로 변환
+
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        정규화할 데이터프레임
+    logger : logging.Logger
+        로거
+
+    Returns:
+    --------
+    pd.DataFrame
+        정규화된 데이터프레임 (원본은 변경되지 않음)
+    """
+    if logger is None:
+        logger = logging.getLogger('coating_preprocessor')
+
+    # 원본 보존
+    df_normalized = df.copy()
+
+    # Object 타입 칼럼 찾기
+    object_cols = df_normalized.select_dtypes(include=['object']).columns
+
+    if len(object_cols) == 0:
+        logger.debug("Object 칼럼이 없습니다. 정규화 불필요.")
+        return df_normalized
+
+    logger.debug(f"Object 칼럼 정규화 시작: {len(object_cols)}개 칼럼")
+
+    for col in object_cols:
+        try:
+            # 1. 모든 값이 None/NaN인 경우
+            non_null_count = df_normalized[col].notna().sum()
+            if non_null_count == 0:
+                df_normalized[col] = float('nan')
+                logger.debug(f"  [{col}] 모든 값이 None/NaN → float(nan)")
+                continue
+
+            # 2. 숫자로 변환 시도
+            numeric_converted = pd.to_numeric(df_normalized[col], errors='coerce')
+            numeric_success_rate = numeric_converted.notna().sum() / non_null_count
+
+            if numeric_success_rate >= 0.5:  # 절반 이상 숫자 변환 성공
+                df_normalized[col] = numeric_converted
+                logger.debug(f"  [{col}] 숫자 변환 성공 ({numeric_success_rate:.1%}) → float")
+                continue
+
+            # 3. 복잡한 타입 (리스트, 딕셔너리 등) 처리
+            sample_value = df_normalized[col].dropna().iloc[0] if df_normalized[col].notna().any() else None
+            if sample_value is not None and isinstance(sample_value, (list, dict, set, tuple)):
+                import json
+                df_normalized[col] = df_normalized[col].apply(
+                    lambda x: json.dumps(x, ensure_ascii=False) if pd.notna(x) else None
+                )
+                logger.debug(f"  [{col}] 복잡한 타입 → JSON 문자열")
+
+            # 4. 문자형으로 변환
+            df_normalized[col] = df_normalized[col].astype('string')
+            logger.debug(f"  [{col}] 문자형 → string 타입")
+
+        except Exception as e:
+            logger.warning(f"  [{col}] 정규화 실패 ({e}), string으로 강제 변환")
+            df_normalized[col] = df_normalized[col].astype('string')
+
+    logger.debug(f"Object 칼럼 정규화 완료")
+    return df_normalized
+
+
+def _save_to_parquet(df: pd.DataFrame, output_path: str, logger: logging.Logger = None):
+    """
+    DataFrame을 Parquet 형식으로 저장 (내부 함수)
+
+    Object 칼럼을 자동으로 정규화하여 저장
+
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        저장할 데이터프레임
+    output_path : str
+        출력 파일 경로 (.parquet)
+    logger : logging.Logger
+        로거
+    """
+    if logger is None:
+        logger = logging.getLogger('coating_preprocessor')
+
+    try:
+        # Object 칼럼 정규화
+        df_normalized = normalize_for_parquet(df, logger)
+
+        # Parquet 저장
+        df_normalized.to_parquet(output_path, engine='pyarrow', compression='snappy', index=False)
+
+        logger.info(f"Parquet 저장 완료: '{output_path}' ({len(df)} 행, {len(df.columns)} 칼럼)")
+
+    except Exception as e:
+        logger.error(f"Parquet 저장 오류: {e}")
+        raise
 
 def parse_time(time_str, reference_date='2024-01-01'):
     """시간 문자열을 datetime으로 변환"""
