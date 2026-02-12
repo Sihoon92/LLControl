@@ -157,21 +157,13 @@ class ZoneAnalyzer:
 
         self.logger.info(f"   ✓ {len(value_columns)}개 Value 칼럼 발견")
 
-        # 평균 UCL/LCL 계산 (경계 검출용)
-        avg_ucl = None
-        avg_lcl = None
-        if 'UCL' in meaningful_changes.columns and 'LCL' in meaningful_changes.columns:
-            avg_ucl = meaningful_changes['UCL'].mean()
-            avg_lcl = meaningful_changes['LCL'].mean()
-            self.logger.info(f"   평균 UCL: {avg_ucl:.4f}, 평균 LCL: {avg_lcl:.4f}")
-
         # 경계 검출 (USL/LSL 범위 내 데이터 비율 기준)
+        # meaningful_changes와 densitometer_data를 함께 전달
         left_boundary, right_boundary = self.find_boundaries(
             densitometer_data,
             value_columns,
             self.config.BOUNDARY_THRESHOLD,
-            ucl=avg_ucl,
-            lcl=avg_lcl
+            meaningful_changes=meaningful_changes
         )
         valid_value_columns = value_columns[left_boundary:right_boundary+1]
 
@@ -292,21 +284,13 @@ class ZoneAnalyzer:
             value_columns = [col for col in densitometer_data.columns
                             if col not in ['group_id', 'control_type', 'before/after', 'time', 'Time', 'TIME']]
 
-        # 평균 UCL/LCL 계산 (경계 검출용)
-        avg_ucl = None
-        avg_lcl = None
-        if 'UCL' in meaningful_changes.columns and 'LCL' in meaningful_changes.columns:
-            avg_ucl = meaningful_changes['UCL'].mean()
-            avg_lcl = meaningful_changes['LCL'].mean()
-            self.logger.info(f"평균 UCL: {avg_ucl:.4f}, 평균 LCL: {avg_lcl:.4f}")
-
         # 경계 검출 (USL/LSL 범위 내 데이터 비율 기준)
+        # meaningful_changes와 densitometer_data를 함께 전달
         left_boundary, right_boundary = self.find_boundaries(
             densitometer_data,
             value_columns,
             self.config.BOUNDARY_THRESHOLD,
-            ucl=avg_ucl,
-            lcl=avg_lcl
+            meaningful_changes=meaningful_changes
         )
         valid_value_columns = value_columns[left_boundary:right_boundary+1]
 
@@ -465,26 +449,23 @@ class ZoneAnalyzer:
         df: pd.DataFrame,
         value_columns: List[str],
         threshold: float = 0.9,
-        ucl: float = None,
-        lcl: float = None
+        meaningful_changes: pd.DataFrame = None
     ) -> Tuple[int, int]:
         """
         유의미한 데이터가 있는 좌/우 경계(boundary) 검출
 
-        USL/LSL 범위 내에 들어오는 데이터 비율을 기준으로 경계 검출
+        동일한 UCL/LCL 값을 가진 시간 구간별로 데이터를 필터링하여 경계 검출
 
         Parameters:
         -----------
         df : pd.DataFrame
-            전처리된 밀도계 데이터
+            전처리된 밀도계 데이터 (time/Time 칼럼 필요)
         value_columns : List[str]
             Value 칼럼 리스트
         threshold : float
             USL/LSL 범위 내 데이터 비율 임계값 (기본값: 0.9 = 90%)
-        ucl : float, optional
-            Upper Control Limit (USL)
-        lcl : float, optional
-            Lower Control Limit (LSL)
+        meaningful_changes : pd.DataFrame, optional
+            UCL/LCL 및 시간 정보를 포함한 DataFrame
 
         Returns:
         --------
@@ -498,9 +479,11 @@ class ZoneAnalyzer:
 
         n_cols = len(value_columns)
 
-        # UCL/LCL이 없으면 기존 방식 (0 이상 데이터 비율) 사용
-        if ucl is None or lcl is None or pd.isna(ucl) or pd.isna(lcl):
-            self.logger.warning("UCL/LCL 정보가 없습니다. 0 이상 데이터 비율 방식 사용")
+        # meaningful_changes가 없거나 UCL/LCL이 없으면 기존 방식 사용
+        if (meaningful_changes is None or
+            'UCL' not in meaningful_changes.columns or
+            'LCL' not in meaningful_changes.columns):
+            self.logger.warning("meaningful_changes 또는 UCL/LCL 정보가 없습니다. 0 이상 데이터 비율 방식 사용")
 
             # 각 칼럼별로 0 이상 데이터 비율 계산
             valid_ratios = []
@@ -513,20 +496,73 @@ class ZoneAnalyzer:
             valid_ratios = np.array(valid_ratios)
 
         else:
-            self.logger.info(f"UCL: {ucl:.4f}, LCL: {lcl:.4f}")
+            # 1. UCL/LCL 값이 동일한 그룹 찾기
+            # UCL/LCL 쌍으로 그룹화하여 빈도 계산
+            ucl_lcl_counts = meaningful_changes.groupby(['UCL', 'LCL']).size().reset_index(name='count')
+            ucl_lcl_counts = ucl_lcl_counts.sort_values('count', ascending=False)
 
-            # 각 칼럼별로 USL/LSL 범위 내 데이터 비율 계산
-            valid_ratios = []
-            for col in value_columns:
-                # USL/LSL 범위 내 데이터 개수
-                within_range = ((df[col] >= lcl) & (df[col] <= ucl)).sum()
-                # 유효한 데이터 개수 (0 이상)
-                valid_count = (df[col] > 0).sum()
-                # 비율 계산
-                ratio = within_range / valid_count if valid_count > 0 else 0
-                valid_ratios.append(ratio)
+            if len(ucl_lcl_counts) == 0:
+                self.logger.warning("유효한 UCL/LCL 쌍을 찾을 수 없습니다. 기본 방식 사용")
+                valid_ratios = np.array([(df[col] > 0).sum() / len(df) for col in value_columns])
+            else:
+                # 가장 빈도가 높은 UCL/LCL 쌍 선택
+                most_common_ucl = ucl_lcl_counts.iloc[0]['UCL']
+                most_common_lcl = ucl_lcl_counts.iloc[0]['LCL']
 
-            valid_ratios = np.array(valid_ratios)
+                self.logger.info(f"가장 빈도 높은 UCL/LCL: {most_common_ucl:.4f} / {most_common_lcl:.4f}")
+                self.logger.info(f"해당 UCL/LCL 쌍을 가진 그룹 수: {ucl_lcl_counts.iloc[0]['count']}")
+
+                # 2. 해당 UCL/LCL 쌍을 가진 시간 구간의 데이터만 필터링
+                matching_groups = meaningful_changes[
+                    (meaningful_changes['UCL'] == most_common_ucl) &
+                    (meaningful_changes['LCL'] == most_common_lcl)
+                ]
+
+                # 시간 칼럼 찾기
+                time_col = None
+                for col_name in ['time', 'Time', 'TIME', 'start_time']:
+                    if col_name in df.columns:
+                        time_col = col_name
+                        break
+
+                if time_col is None:
+                    self.logger.warning("시간 칼럼을 찾을 수 없습니다. 전체 데이터 사용")
+                    filtered_df = df
+                else:
+                    # 시간 범위에 해당하는 데이터 필터링
+                    time_masks = []
+                    for _, group_row in matching_groups.iterrows():
+                        if 'start_time' in group_row and 'end_time' in group_row:
+                            start = group_row['start_time']
+                            end = group_row['end_time']
+                            mask = (df[time_col] >= start) & (df[time_col] <= end)
+                            time_masks.append(mask)
+
+                    if time_masks:
+                        # 모든 마스크를 OR로 결합
+                        combined_mask = time_masks[0]
+                        for mask in time_masks[1:]:
+                            combined_mask = combined_mask | mask
+
+                        filtered_df = df[combined_mask]
+                        self.logger.info(f"시간 필터링: {len(df)} → {len(filtered_df)} 행")
+                    else:
+                        self.logger.warning("시간 범위를 찾을 수 없습니다. 전체 데이터 사용")
+                        filtered_df = df
+
+                # 3. 필터링된 데이터에서 각 칼럼별로 USL/LSL 범위 내 비율 계산
+                valid_ratios = []
+                for col in value_columns:
+                    # USL/LSL 범위 내 데이터 개수
+                    within_range = ((filtered_df[col] >= most_common_lcl) &
+                                   (filtered_df[col] <= most_common_ucl)).sum()
+                    # 유효한 데이터 개수 (0 이상)
+                    valid_count = (filtered_df[col] > 0).sum()
+                    # 비율 계산
+                    ratio = within_range / valid_count if valid_count > 0 else 0
+                    valid_ratios.append(ratio)
+
+                valid_ratios = np.array(valid_ratios)
 
         # Left boundary: 왼쪽에서 오른쪽으로 이동하면서 threshold 이상인 첫 칼럼
         left_boundary = None
