@@ -75,22 +75,23 @@ class ZoneAnalyzer:
         self.logger.info("Zone별 분석 시작 (v1.3 - 통계 분석 포함)")
         self.logger.info("="*80)
 
-        # 기본 Zone 분석 실행
-        self.zone_results = self.analyze_all_groups(
+        # 기본 Zone 분석 실행 (valid_group_ids도 반환)
+        self.zone_results, valid_group_ids = self.analyze_all_groups(
             densitometer_data=densitometer_data,
             meaningful_changes=meaningful_changes,
             visualize=visualize
         )
 
-        # 통계 분석 실행
+        # 통계 분석 실행 (실제 학습 데이터만 대상)
         if perform_statistical_analysis and self.zone_results is not None:
             self.logger.info("="*80)
-            self.logger.info("통계 분석 시작")
+            self.logger.info("통계 분석 시작 (실제 학습 데이터만 대상)")
             self.logger.info("="*80)
 
             self.zone_statistics = self.perform_statistical_analysis(
                 densitometer_data=densitometer_data,
-                meaningful_changes=meaningful_changes
+                meaningful_changes=meaningful_changes,
+                valid_group_ids=valid_group_ids  # 유효한 group_id만 전달
             )
 
             # 통계 분석 결과 저장
@@ -120,7 +121,7 @@ class ZoneAnalyzer:
         densitometer_data: pd.DataFrame,
         meaningful_changes: pd.DataFrame,
         visualize: bool = True
-    ) -> pd.DataFrame:
+    ) -> Tuple[pd.DataFrame, List[int]]:
         """
         모든 Group에 대해 Zone별 분석 수행
 
@@ -135,8 +136,8 @@ class ZoneAnalyzer:
 
         Returns:
         --------
-        pd.DataFrame
-            Zone 분석 결과
+        Tuple[pd.DataFrame, List[int]]
+            (Zone 분석 결과, 성공적으로 분석된 group_id 리스트)
         """
         self.logger.info(f"데이터 크기:")
         self.logger.info(f"  밀도계 데이터: {len(densitometer_data)} 행")
@@ -212,7 +213,7 @@ class ZoneAnalyzer:
 
         if not all_zone_results:
             self.logger.warning("   ✗ 분석 결과 없음")
-            return pd.DataFrame()
+            return pd.DataFrame(), []
 
         # 결과 저장
         self.logger.info(f"[4단계] 결과 저장...")
@@ -236,28 +237,35 @@ class ZoneAnalyzer:
 
         except Exception as e:
             self.logger.error(f"   ✗ 저장 오류: {e}", exc_info=True)
-            return pd.DataFrame()
+            return pd.DataFrame(), []
+
+        # 실제로 분석에 성공한 group_id 추출
+        successful_group_ids = sorted(results_df['group_id'].unique().tolist())
 
         # 최종 요약
         self.logger.info("="*80)
         self.logger.info("Zone 분석 완료 요약")
         self.logger.info("="*80)
-        self.logger.info(f"분석 Group 수: {len(valid_groups)}")
+        self.logger.info(f"분석 대상 Group 수: {len(valid_groups)}")
+        self.logger.info(f"성공적으로 분석된 Group 수: {len(successful_group_ids)}")
         self.logger.info(f"총 Zone 분석 결과: {len(all_zone_results)}")
         self.logger.info(f"결과 파일: {output_file}")
         if visualize:
             self.logger.info(f"시각화 파일: {self.config.PLOT_DIR}/group_zone_analysis/")
         self.logger.info("="*80)
 
-        return results_df
+        return results_df, successful_group_ids
 
     def perform_statistical_analysis(
         self,
         densitometer_data: pd.DataFrame,
-        meaningful_changes: pd.DataFrame
+        meaningful_changes: pd.DataFrame,
+        valid_group_ids: List[int] = None
     ) -> pd.DataFrame:
         """
         통계 분석 수행 (제어 구간 + 비제어 구간)
+
+        실제 학습에 사용되는 데이터만 대상으로 통계 분석 수행
 
         Parameters:
         -----------
@@ -265,6 +273,8 @@ class ZoneAnalyzer:
             밀도계 데이터 (control_type 칼럼 포함)
         meaningful_changes : pd.DataFrame
             meaningful_changes 데이터 (UCL/LCL 포함)
+        valid_group_ids : List[int], optional
+            실제 분석에 성공한 group_id 리스트 (None이면 전체 사용)
 
         Returns:
         --------
@@ -302,6 +312,13 @@ class ZoneAnalyzer:
 
         # 제어 구간 분석
         control_data = densitometer_data[densitometer_data['control_type'] == 'controlled']
+
+        # ===== 유효한 group_id만 필터링 =====
+        if valid_group_ids is not None:
+            control_data = control_data[control_data['group_id'].isin(valid_group_ids)]
+            self.logger.info(f"유효한 Group으로 필터링: {len(valid_group_ids)}개")
+        # ======================================
+
         control_groups = control_data['group_id'].unique()
 
         self.logger.info(f"제어 구간 분석: {len(control_groups)}개 그룹")
@@ -363,6 +380,30 @@ class ZoneAnalyzer:
 
         # 비제어 구간 분석
         no_control_data = densitometer_data[densitometer_data['control_type'] == 'no_control']
+
+        # ===== 제어 구간 개수에 맞춰 비제어 구간 샘플링 =====
+        if valid_group_ids is not None:
+            n_valid = len(valid_group_ids)
+            available_no_control_groups = no_control_data['group_id'].unique()
+
+            if len(available_no_control_groups) >= n_valid:
+                # 랜덤 시드 고정 (재현성)
+                np.random.seed(42)
+                selected_no_control_groups = np.random.choice(
+                    available_no_control_groups,
+                    size=n_valid,
+                    replace=False
+                )
+                no_control_data = no_control_data[
+                    no_control_data['group_id'].isin(selected_no_control_groups)
+                ]
+                self.logger.info(f"비제어 구간 매칭: {n_valid}개 랜덤 선택 (전체 {len(available_no_control_groups)}개 중)")
+            else:
+                self.logger.warning(
+                    f"비제어 구간 부족: {len(available_no_control_groups)}개 < {n_valid}개 (모두 사용)"
+                )
+        # =====================================================
+
         no_control_groups = no_control_data['group_id'].unique()
 
         self.logger.info(f"비제어 구간 분석: {len(no_control_groups)}개 그룹")
