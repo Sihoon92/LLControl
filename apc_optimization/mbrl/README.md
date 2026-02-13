@@ -59,7 +59,33 @@ pip install torch torchvision
 pip install numpy pandas scikit-learn joblib
 ```
 
-### 2. 데이터 준비
+### 2. 간단한 방법: train.py 사용 (권장)
+
+```bash
+# Training 데이터로 학습 (기본)
+python -m apc_optimization.mbrl.train
+
+# Test 데이터로 학습
+python -m apc_optimization.mbrl.train --mode test
+
+# GPU 사용
+python -m apc_optimization.mbrl.train --device cuda
+
+# 데이터 파일 직접 지정
+python -m apc_optimization.mbrl.train --data-file outputs/custom_data.xlsx --output-dir outputs/mbrl_custom
+```
+
+**실행 결과**:
+- `outputs/mbrl/training/` (또는 `test/`) 디렉토리에 저장
+- `best_model.pt`: 최고 성능 모델
+- `training_history.json`: 학습 히스토리
+- `test_metrics.json`: 테스트 메트릭
+- `training_report.txt`: 종합 리포트
+- `scaler.pkl`: 데이터 정규화 Scaler
+
+### 3. 고급: Python API 직접 사용
+
+#### 3-1. 데이터 준비
 
 ```python
 from apc_optimization.mbrl import PETSDataProcessor
@@ -84,7 +110,7 @@ X_val, y_val = data_dict['val']
 X_test, y_test = data_dict['test']
 ```
 
-### 3. 모델 학습
+#### 3-2. 모델 학습
 
 ```python
 from apc_optimization.mbrl import PerZoneProbabilisticEnsemble
