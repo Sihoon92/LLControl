@@ -16,6 +16,7 @@ import seaborn as sns
 
 # 모듈 import
 sys.path.insert(0, str(Path(__file__).parent))
+import utils
 
 from apc_optimization import (
     N_ZONES, N_GV,
@@ -33,10 +34,13 @@ def load_test_data(test_data_file: str) -> List[Dict]:
     """
     Test data 로드 및 전처리
 
+    Excel (.xlsx/.xls) 과 Parquet (.parquet) 형식을 모두 지원.
+    첫 번째 행을 컬럼 헤더로 사용.
+
     Parameters:
     -----------
     test_data_file : str
-        model_test_data.xlsx 파일 경로
+        model_test_data 파일 경로 (.xlsx 또는 .parquet)
 
     Returns:
     --------
@@ -47,9 +51,16 @@ def load_test_data(test_data_file: str) -> List[Dict]:
     logger.info("Test Data 로드")
     logger.info("="*80)
 
-    # 데이터 로드
-    df = pd.read_excel(test_data_file)
+    # 데이터 로드 (Excel / Parquet 자동 판별, 첫 번째 행 = 컬럼 헤더)
+    df = utils.load_file(test_data_file, logger=logger)
     logger.info(f"로드된 데이터: {len(df)} 행")
+
+    # None 컬럼 이름 처리 (xlwings 로드 시 발생할 수 있는 unnamed 컬럼)
+    none_cols = [col for col in df.columns if col is None]
+    if none_cols:
+        rename_map = {col: f'unnamed_{i}' for i, col in enumerate(none_cols)}
+        df.rename(columns=rename_map, inplace=True)
+        logger.warning(f"None 컬럼 {len(none_cols)}개 → 임시 이름 부여: {list(rename_map.values())}")
 
     # 필요한 칼럼 확인
     required_cols = [
@@ -504,8 +515,11 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 예시:
-  # 기본 실행 (outputs/models_v2/ 에서 CatBoost 모델 자동 탐색)
+  # 기본 실행 - Excel (outputs/models_v2/ 에서 CatBoost 모델 자동 탐색)
   python apc_optimization_real_data_test.py --test-data outputs/model_test_data.xlsx
+
+  # Parquet 형식으로 로드
+  python apc_optimization_real_data_test.py --test-data outputs/model_test_data.parquet
 
   # 모델 파일 직접 지정
   python apc_optimization_real_data_test.py --test-data outputs/model_test_data.xlsx --model-path outputs/models_v2/CatBoost_multi.pkl
@@ -519,7 +533,7 @@ def main():
         '--test-data',
         type=str,
         default='./outputs/model_test_data.xlsx',
-        help='테스트 데이터 파일 경로 (model_test_data.xlsx)'
+        help='테스트 데이터 파일 경로 (.xlsx 또는 .parquet, 기본값: model_test_data.xlsx)'
     )
     parser.add_argument(
         '--max-samples',
