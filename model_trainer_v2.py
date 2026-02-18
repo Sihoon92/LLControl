@@ -8,6 +8,11 @@ import pickle
 import logging
 from datetime import datetime
 from pathlib import Path
+import sys
+
+# 프로젝트 루트를 경로에 추가 (utils 임포트용)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import utils
 
 # 모델 라이브러리
 from sklearn.model_selection import train_test_split, cross_val_score, KFold
@@ -200,19 +205,44 @@ class ModelTrainer:
         self.logger.info("데이터 로드 및 전처리")
         self.logger.info("="*80)
 
-        # 데이터 로드
+        # 데이터 로드 (xlwings 기반 load_excel_file 사용)
         self.logger.info(f"데이터 파일: {self.data_file}")
-        self.data = pd.read_excel(self.data_file)
+        self.data = utils.load_excel_file(self.data_file, logger=self.logger)
         self.logger.info(f"  ✓ {len(self.data)} 샘플 로드")
 
+        # None 컬럼 이름 처리 (xlwings 로드 시 발생할 수 있는 unnamed 컬럼)
+        none_cols = [col for col in self.data.columns if col is None]
+        if none_cols:
+            rename_map = {col: f'unnamed_{i}' for i, col in enumerate(none_cols)}
+            self.data.rename(columns=rename_map, inplace=True)
+            self.logger.info(f"  None 컬럼 {len(none_cols)}개 → 임시 이름 부여: {list(rename_map.values())}")
+
         # 입력/출력 특성 분리
-        self.input_features = [col for col in self.data.columns
-                              if 'current_CLR' in col or 'delta_GV' in col]
-        self.output_features = [col for col in self.data.columns
-                               if 'diff_CLR' in col]
+        # position_features: Zone 위치 관련 물리적 특성
+        position_features = [col for col in self.data.columns if col in [
+            'zone_distance_from_center', 'is_edge',
+            'normalized_position', 'normalized_distance'
+        ]]
+
+        # state_features: 현재 공정 상태 (current CLR)
+        state_features = [col for col in self.data.columns if 'current_CLR' in col]
+
+        # global_features: 전역 제어 변수 (RPM)
+        global_features = [col for col in self.data.columns if 'delta_RPM' in col]
+
+        # local_features: 국소 제어 변수 (GV 변화량, 자신 및 인접 zone)
+        local_features = [col for col in self.data.columns if 'delta_GV' in col]
+
+        self.input_features = position_features + state_features + global_features + local_features
+
+        self.output_features = [col for col in self.data.columns if 'diff_CLR' in col]
 
         self.logger.info(f"입력 특성: {len(self.input_features)}개")
-        self.logger.info(f"출력 특성: {len(self.output_features)}개")
+        self.logger.info(f"  - position_features ({len(position_features)}개): {position_features}")
+        self.logger.info(f"  - state_features    ({len(state_features)}개): {state_features}")
+        self.logger.info(f"  - global_features   ({len(global_features)}개): {global_features}")
+        self.logger.info(f"  - local_features    ({len(local_features)}개): {local_features}")
+        self.logger.info(f"출력 특성: {len(self.output_features)}개: {self.output_features}")
 
         # X, Y 분리
         X = self.data[self.input_features].values
