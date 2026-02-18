@@ -504,7 +504,13 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 예시:
+  # 기본 실행 (outputs/models_v2/ 에서 CatBoost 모델 자동 탐색)
   python apc_optimization_real_data_test.py --test-data outputs/model_test_data.xlsx
+
+  # 모델 파일 직접 지정
+  python apc_optimization_real_data_test.py --test-data outputs/model_test_data.xlsx --model-path outputs/models_v2/CatBoost_multi.pkl
+
+  # 샘플 수 제한 + 상세 로깅
   python apc_optimization_real_data_test.py --test-data outputs/model_test_data.xlsx --max-samples 10 --verbose
         """
     )
@@ -526,6 +532,13 @@ def main():
         type=str,
         default='./outputs',
         help='결과 저장 디렉토리'
+    )
+    parser.add_argument(
+        '--model-path',
+        type=str,
+        default=None,
+        help='CatBoost 모델 파일 경로 (.pkl). '
+             '미지정 시 outputs/models_v2/ 에서 *CatBoost* 패턴으로 자동 탐색'
     )
     parser.add_argument(
         '-v', '--verbose',
@@ -558,7 +571,11 @@ def main():
 
     # 2. 모델 및 평가기 초기화
     logger.info("\n모델 및 평가기 초기화")
-    model_manager = CatBoostModelManager()
+    if args.model_path:
+        logger.info(f"지정된 모델 파일 사용: {args.model_path}")
+    else:
+        logger.info("모델 자동 탐색: outputs/models_v2/*CatBoost*")
+    model_manager = CatBoostModelManager(model_path=args.model_path)
     cost_evaluator = CostFunctionEvaluator()
     evaluator = OptimizationEvaluator(cost_evaluator)
 

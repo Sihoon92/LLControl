@@ -250,6 +250,27 @@ def main():
     trainer.save_predictions()
 
     # ======================================================================
+    # Step 9-2: 학습된 모델 파라미터 저장
+    # ======================================================================
+    print("\n" + "="*80)
+    print("[Step 9-2] 학습된 CatBoost 모델 파라미터 저장")
+    print("="*80)
+
+    # apc_optimization/config.py 의 MODEL_DIR 과 동일한 경로로 저장
+    # → CatBoostModelManager 가 *CatBoost* 패턴으로 자동 탐색
+    MODEL_SAVE_DIR = './outputs/models_v2'
+    saved_files = trainer.save_models(
+        save_dir=MODEL_SAVE_DIR,
+        model_names=['CatBoost_multi', 'CatBoost_chain']
+    )
+    if saved_files:
+        print(f"저장된 모델 파일:")
+        for f in saved_files:
+            print(f"  - {f}")
+    else:
+        print("  저장된 모델 없음 (CatBoost 학습이 완료되지 않았을 수 있음)")
+
+    # ======================================================================
     # Step 10: 종합 리포트 생성
     # ======================================================================
     print("\n" + "="*80)
@@ -273,6 +294,9 @@ def main():
     print("  - *_predictions.csv: 각 모델의 상세 예측 결과")
     print("  - training_report.txt: 종합 리포트")
     print("  - training.log: 학습 로그")
+    print(f"\n저장된 모델 파라미터 ({MODEL_SAVE_DIR}/):")
+    print("  - CatBoost_multi.pkl: CatBoost MultiRMSE 모델 (권장)")
+    print("  - CatBoost_chain.pkl: CatBoost Chain 모델")
     print()
 
     # 최고 성능 모델 출력
