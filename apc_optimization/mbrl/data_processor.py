@@ -18,6 +18,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 from ..config import N_ZONES, N_GV
+from utils import load_file
 
 logger = logging.getLogger(__name__)
 
@@ -71,12 +72,7 @@ class PETSDataProcessor:
         """
         logger.info(f"데이터 로드: {data_file} (mode={mode})")
 
-        if data_file.endswith('.xlsx'):
-            df = pd.read_excel(data_file)
-        elif data_file.endswith('.csv'):
-            df = pd.read_csv(data_file)
-        else:
-            raise ValueError(f"Unsupported file format: {data_file}")
+        df = load_file(data_file, logger=logger)
 
         logger.info(f"  로드된 데이터: {len(df)} 행, {len(df.columns)} 열")
 
