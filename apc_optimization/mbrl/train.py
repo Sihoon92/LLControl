@@ -25,6 +25,7 @@ from apc_optimization.mbrl import (
     ENSEMBLE_CONFIG,
     TRAINING_CONFIG,
     DATA_CONFIG,
+    EXPERIMENT_CONFIG,
     MBRL_OUTPUT_DIR,
     MBRL_MODEL_DIR,
     MBRL_LOG_DIR,
@@ -295,7 +296,7 @@ class MBRLTrainer:
                 break
 
             # 체크포인트 저장 (주기적)
-            if (epoch + 1) % TRAINING_CONFIG['checkpoint_interval'] == 0:
+            if (epoch + 1) % EXPERIMENT_CONFIG['checkpoint_interval'] == 0:
                 checkpoint_path = self.model_dir / f"checkpoint_epoch{epoch+1}.pt"
                 self.model.save(str(checkpoint_path))
 
