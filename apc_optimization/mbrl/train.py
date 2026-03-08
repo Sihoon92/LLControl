@@ -14,6 +14,19 @@ import json
 import numpy as np
 import torch
 
+
+class NumpyEncoder(json.JSONEncoder):
+    """numpy 타입을 JSON 직렬화 가능한 타입으로 변환"""
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
+
+
 # 프로젝트 루트를 Python path에 추가
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -344,13 +357,13 @@ class MBRLTrainer:
         # 1. 학습 히스토리 저장
         history_path = self.output_dir / "training_history.json"
         with open(history_path, 'w') as f:
-            json.dump(self.history, f, indent=2)
+            json.dump(self.history, f, indent=2, cls=NumpyEncoder)
         self.logger.info(f"학습 히스토리 저장: {history_path}")
 
         # 2. 최종 메트릭 저장
         metrics_path = self.output_dir / "test_metrics.json"
         with open(metrics_path, 'w') as f:
-            json.dump(test_metrics, f, indent=2)
+            json.dump(test_metrics, f, indent=2, cls=NumpyEncoder)
         self.logger.info(f"테스트 메트릭 저장: {metrics_path}")
 
         # 3. 설정 저장
@@ -365,7 +378,7 @@ class MBRLTrainer:
             'random_seed': self.random_seed,
         }
         with open(config_path, 'w') as f:
-            json.dump(config, f, indent=2)
+            json.dump(config, f, indent=2, cls=NumpyEncoder)
         self.logger.info(f"설정 저장: {config_path}")
 
         # 4. 요약 리포트
