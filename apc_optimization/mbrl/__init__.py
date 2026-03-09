@@ -47,6 +47,16 @@ from .data_processor import (
     PETSDataProcessor,
 )
 
+from .cem_planner import (
+    CEMPlanner,
+)
+
+from .benchmark import (
+    CEMBenchmark,
+    ScenarioResult,
+    run_benchmark,
+)
+
 __all__ = [
     # Config
     'DYNAMICS_MODEL_CONFIG',
@@ -72,6 +82,14 @@ __all__ = [
 
     # Data Processing
     'PETSDataProcessor',
+
+    # CEM Planner
+    'CEMPlanner',
+
+    # Benchmark
+    'CEMBenchmark',
+    'ScenarioResult',
+    'run_benchmark',
 ]
 
 
