@@ -13,6 +13,14 @@ import sys
 # 프로젝트 루트를 경로에 추가 (utils 임포트용)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import utils
+from feature_extractor import (
+    extract_features as extract_canonical_features,
+    CANONICAL_INPUT_FEATURES,
+    OUTPUT_FEATURES,
+    POSITION_FEATURES,
+    STATE_FEATURES,
+    CONTROL_FEATURES,
+)
 
 # 모델 라이브러리
 from sklearn.model_selection import train_test_split, cross_val_score, KFold
@@ -217,36 +225,17 @@ class ModelTrainer:
             self.data.rename(columns=rename_map, inplace=True)
             self.logger.info(f"  None 컬럼 {len(none_cols)}개 → 임시 이름 부여: {list(rename_map.values())}")
 
-        # 입력/출력 특성 분리
-        # position_features: Zone 위치 관련 물리적 특성
-        position_features = [col for col in self.data.columns if col in [
-            'zone_distance_from_center', 'is_edge',
-            'normalized_position', 'normalized_distance'
-        ]]
+        # 입력/출력 특성 분리 — feature_extractor.py 공통 정의 사용
+        # (ModelTrainer·MBRL 동일 피처 보장 / delta_GV_left2/right2 제외)
+        X, Y = extract_canonical_features(self.data)
+        self.input_features  = CANONICAL_INPUT_FEATURES   # 11개
+        self.output_features = OUTPUT_FEATURES             # 3개
 
-        # state_features: 현재 공정 상태 (current CLR)
-        state_features = [col for col in self.data.columns if 'current_CLR' in col]
-
-        # global_features: 전역 제어 변수 (RPM)
-        global_features = [col for col in self.data.columns if 'delta_RPM' in col]
-
-        # local_features: 국소 제어 변수 (GV 변화량, 자신 및 인접 zone)
-        local_features = [col for col in self.data.columns if 'delta_GV' in col]
-
-        self.input_features = position_features + state_features + global_features + local_features
-
-        self.output_features = [col for col in self.data.columns if 'diff_CLR' in col]
-
-        self.logger.info(f"입력 특성: {len(self.input_features)}개")
-        self.logger.info(f"  - position_features ({len(position_features)}개): {position_features}")
-        self.logger.info(f"  - state_features    ({len(state_features)}개): {state_features}")
-        self.logger.info(f"  - global_features   ({len(global_features)}개): {global_features}")
-        self.logger.info(f"  - local_features    ({len(local_features)}개): {local_features}")
+        self.logger.info(f"입력 특성: {len(self.input_features)}개 [feature_extractor 공통 정의]")
+        self.logger.info(f"  - position_features ({len(POSITION_FEATURES)}개): {POSITION_FEATURES}")
+        self.logger.info(f"  - state_features    ({len(STATE_FEATURES)}개): {STATE_FEATURES}")
+        self.logger.info(f"  - control_features  ({len(CONTROL_FEATURES)}개): {CONTROL_FEATURES}")
         self.logger.info(f"출력 특성: {len(self.output_features)}개: {self.output_features}")
-
-        # X, Y 분리
-        X = self.data[self.input_features].values
-        Y = self.data[self.output_features].values
 
         # Train/Test 분리
         self.X_train, self.X_test, self.Y_train, self.Y_test = train_test_split(
@@ -763,57 +752,32 @@ class ModelTrainer:
         self.logger.info("="*80)
 
         # ------------------------------------------------------------------
-        # 1. MBRL 전용 11개 피처 추출 (zone_id → 위치 계산)
+        # 1. ModelTrainer의 전처리 결과를 직접 사용
+        #    (feature_extractor 공통 피처 11개 + 동일 StandardScaler + 동일 분할)
         # ------------------------------------------------------------------
-        try:
-            import sys as _sys
-            _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-            from apc_optimization.mbrl.data_processor import PETSDataProcessor
-        except ImportError as e:
-            self.logger.error(f"MBRL 모듈 임포트 실패: {e}")
+        if self.X_train_scaled is None or self.X_test_scaled is None:
+            self.logger.error("load_and_prepare_data()를 먼저 실행하세요.")
             return
 
-        processor = PETSDataProcessor(normalize=False)
-        try:
-            X_mbrl, Y_mbrl = processor.extract_features(self.data)
-        except Exception as e:
-            self.logger.error(f"MBRL 피처 추출 실패: {e}")
-            return
-
-        self.logger.info(f"  MBRL 피처 shape: X={X_mbrl.shape}, Y={Y_mbrl.shape}")
-
-        # ------------------------------------------------------------------
-        # 2. 동일 조건 train/test 분할 (random_state 동일 → 동일 샘플 인덱스)
-        # ------------------------------------------------------------------
-        X_tr, X_te, Y_tr, Y_te = train_test_split(
-            X_mbrl, Y_mbrl,
-            test_size=0.3,
-            random_state=self.random_state
-        )
-
-        # validation split (train의 20%)
+        # validation split (train의 20% — early stopping용)
         X_tr, X_val, Y_tr, Y_val = train_test_split(
-            X_tr, Y_tr,
+            self.X_train_scaled, self.Y_train,
             test_size=0.2,
             random_state=self.random_state
         )
 
-        self.logger.info(f"  Train: {len(X_tr)}, Val: {len(X_val)}, Test: {len(X_te)}")
+        X_tr_s  = X_tr.astype(np.float32)
+        X_val_s = X_val.astype(np.float32)
+        X_te_s  = self.X_test_scaled.astype(np.float32)
+        Y_tr_s  = Y_tr.astype(np.float32)
+        Y_val_s = Y_val.astype(np.float32)
+
+        self.logger.info(f"  [feature_extractor 공통 피처 사용 — ModelTrainer와 완전 동일]")
+        self.logger.info(f"  피처: {self.input_features}")
+        self.logger.info(f"  Train: {len(X_tr_s)}, Val: {len(X_val_s)}, Test: {len(X_te_s)}")
 
         # ------------------------------------------------------------------
-        # 3. 입출력 정규화 (train fit → val/test transform)
-        # ------------------------------------------------------------------
-        scaler_X = StandardScaler().fit(X_tr)
-        scaler_Y = StandardScaler().fit(Y_tr)
-
-        X_tr_s  = scaler_X.transform(X_tr).astype(np.float32)
-        X_val_s = scaler_X.transform(X_val).astype(np.float32)
-        X_te_s  = scaler_X.transform(X_te).astype(np.float32)
-        Y_tr_s  = scaler_Y.transform(Y_tr).astype(np.float32)
-        Y_val_s = scaler_Y.transform(Y_val).astype(np.float32)
-
-        # ------------------------------------------------------------------
-        # 4. EnsembleWrapper 초기화
+        # 2. EnsembleWrapper 초기화
         # ------------------------------------------------------------------
         from apc_optimization.mbrl.ensemble_nn import EnsembleWrapper
 
@@ -901,15 +865,15 @@ class ModelTrainer:
             m.load_state_dict(state)
 
         # ------------------------------------------------------------------
-        # 6. 테스트셋 예측 → 역정규화 → predictions 등록
+        # 6. 테스트셋 예측 → predictions 등록
+        #    (Y는 ModelTrainer와 동일 원본 스케일 — 별도 역정규화 불필요)
         # ------------------------------------------------------------------
         X_te_t = torch.FloatTensor(X_te_s).to(device)
         mean_pred_t, _ = ensemble.predict(X_te_t, return_uncertainty=False)
-        mean_pred_s = mean_pred_t.cpu().numpy()
-        mean_pred   = scaler_Y.inverse_transform(mean_pred_s)  # 원본 스케일 복원
+        mean_pred = mean_pred_t.cpu().numpy()  # (N_test, 3)
 
         self.models['MBRL_ensemble']      = ensemble
-        self.predictions['MBRL_ensemble'] = mean_pred  # (N_test, 3)
+        self.predictions['MBRL_ensemble'] = mean_pred
 
         self.logger.info(f"\n✓ MBRL_ensemble 학습 완료")
         self.logger.info(f"  Best Val MSE (정규화 공간): {best_val_loss:.6f}")

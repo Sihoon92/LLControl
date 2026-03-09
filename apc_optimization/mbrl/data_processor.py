@@ -19,6 +19,7 @@ from sklearn.preprocessing import StandardScaler
 
 from ..config import N_ZONES, N_GV
 from utils import load_file
+from feature_extractor import extract_features as extract_canonical_features
 
 logger = logging.getLogger(__name__)
 
@@ -85,117 +86,28 @@ class PETSDataProcessor:
         """
         데이터프레임에서 입력/출력 특성 추출
 
+        feature_extractor.py 공통 정의를 사용하여
+        ModelTrainer와 동일한 피처(11개)를 추출한다.
+
         Args:
             df: 학습 데이터 DataFrame
 
         Returns:
             X: (N, 11) - 입력
-            y: (N, 3) - 출력
+            y: (N, 3)  - 출력
         """
-        logger.info("특성 추출 중...")
+        logger.info("특성 추출 중... [feature_extractor 공통 정의 사용]")
 
-        required_cols = [
-            # 위치 특성 (4개) - 계산으로 생성
-            # 'distance', 'edge_distance', 'normalized_position', 'normalized_distance'
-
-            # Zone ID
-            'zone_id',
-
-            # 현재 CLR (3개)
-            'current_CLR_1', 'current_CLR_2', 'current_CLR_3',
-
-            # 제어 변화 (인접 포함)
-            'delta_GV_self',
-            'delta_GV_left1', 'delta_GV_right1',
-            'delta_RPM',
-
-            # 출력 (diff_CLR)
-            'diff_CLR_1', 'diff_CLR_2', 'diff_CLR_3',
-        ]
-
-        # 필수 칼럼 확인
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
-            logger.warning(f"누락된 칼럼: {missing_cols}")
-
-            # 대체 칼럼 확인
-            if 'delta_GV_left1' not in df.columns and 'delta_GV_left' in df.columns:
-                df['delta_GV_left1'] = df['delta_GV_left']
-                logger.info("  delta_GV_left1 <- delta_GV_left")
-
-            if 'delta_GV_right1' not in df.columns and 'delta_GV_right' in df.columns:
-                df['delta_GV_right1'] = df['delta_GV_right']
-                logger.info("  delta_GV_right1 <- delta_GV_right")
-
-        # 입력 특성 구성
-        X_list = []
-        y_list = []
-
-        for idx, row in df.iterrows():
-            zone_id = int(row['zone_id']) - 1  # 0-based
-
-            # 1. 위치 특성 (4개)
-            position_features = self._compute_position_features(zone_id)
-
-            # 2. 현재 CLR (3개)
-            current_clr = np.array([
-                row['current_CLR_1'],
-                row['current_CLR_2'],
-                row['current_CLR_3']
-            ], dtype=np.float32)
-
-            # 3. 제어 특성 (4개)
-            control_features = np.array([
-                row.get('delta_GV_left1', 0.0),
-                row['delta_GV_self'],
-                row.get('delta_GV_right1', 0.0),
-                row['delta_RPM']
-            ], dtype=np.float32)
-
-            # 입력 벡터 결합
-            x = np.concatenate([position_features, current_clr, control_features])
-
-            # 출력 (diff_CLR)
-            y = np.array([
-                row['diff_CLR_1'],
-                row['diff_CLR_2'],
-                row['diff_CLR_3']
-            ], dtype=np.float32)
-
-            X_list.append(x)
-            y_list.append(y)
-
-        X = np.array(X_list)  # (N, 11)
-        y = np.array(y_list)  # (N, 3)
+        X, y = extract_canonical_features(df)
 
         logger.info(f"  추출 완료: X shape={X.shape}, y shape={y.shape}")
 
-        # NaN 체크
         if np.isnan(X).any():
             logger.warning(f"  입력에 NaN 발견: {np.isnan(X).sum()}개")
         if np.isnan(y).any():
             logger.warning(f"  출력에 NaN 발견: {np.isnan(y).sum()}개")
 
         return X, y
-
-    def _compute_position_features(self, zone_i: int) -> np.ndarray:
-        """
-        위치 특성 계산 (4개)
-
-        dynamics_model.py의 _get_position_features와 동일
-        """
-        center = N_ZONES / 2
-        distance = zone_i * 100  # 100mm 간격
-        edge_distance = abs(zone_i - (center - 0.5))
-        normalized_position = zone_i / (N_ZONES - 1)
-        normalized_distance = edge_distance / (center - 0.5)
-
-        return np.array([
-            distance,
-            edge_distance,
-            normalized_position,
-            normalized_distance
-        ], dtype=np.float32)
 
     def split_data(
         self,
