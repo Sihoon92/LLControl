@@ -769,12 +769,18 @@ class ModelTrainer:
         X_tr_s  = X_tr.astype(np.float32)
         X_val_s = X_val.astype(np.float32)
         X_te_s  = self.X_test_scaled.astype(np.float32)
-        Y_tr_s  = Y_tr.astype(np.float32)
-        Y_val_s = Y_val.astype(np.float32)
+
+        # Y 정규화: NLL 손실의 수치 안정성을 위해 필수
+        # (train 통계로 fit → val/test는 transform만. 예측 후 역변환하여 원본 스케일로 비교)
+        from sklearn.preprocessing import StandardScaler as _SS
+        y_scaler = _SS()
+        Y_tr_s  = y_scaler.fit_transform(Y_tr).astype(np.float32)
+        Y_val_s = y_scaler.transform(Y_val).astype(np.float32)
 
         self.logger.info(f"  [feature_extractor 공통 피처 사용 — ModelTrainer와 완전 동일]")
         self.logger.info(f"  피처: {self.input_features}")
         self.logger.info(f"  Train: {len(X_tr_s)}, Val: {len(X_val_s)}, Test: {len(X_te_s)}")
+        self.logger.info(f"  Y 정규화 (train 기준): mean={y_scaler.mean_}, std={y_scaler.scale_}")
 
         # ------------------------------------------------------------------
         # 2. EnsembleWrapper 초기화
@@ -865,12 +871,14 @@ class ModelTrainer:
             m.load_state_dict(state)
 
         # ------------------------------------------------------------------
-        # 6. 테스트셋 예측 → predictions 등록
-        #    (Y는 ModelTrainer와 동일 원본 스케일 — 별도 역정규화 불필요)
+        # 6. 테스트셋 예측 → 역정규화 → predictions 등록
+        #    모델은 정규화된 Y 공간에서 학습했으므로, 예측값을 원본 스케일로 복원해야
+        #    evaluate_models()에서 다른 모델과 동등하게 비교 가능
         # ------------------------------------------------------------------
         X_te_t = torch.FloatTensor(X_te_s).to(device)
         mean_pred_t, _ = ensemble.predict(X_te_t, return_uncertainty=False)
-        mean_pred = mean_pred_t.cpu().numpy()  # (N_test, 3)
+        mean_pred_norm = mean_pred_t.cpu().numpy()           # (N_test, 3) — 정규화 공간
+        mean_pred = y_scaler.inverse_transform(mean_pred_norm)  # 원본 스케일 복원
 
         self.models['MBRL_ensemble']      = ensemble
         self.predictions['MBRL_ensemble'] = mean_pred
