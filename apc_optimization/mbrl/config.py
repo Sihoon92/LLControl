@@ -14,12 +14,12 @@ from typing import Dict, List
 
 # Per-Zone Dynamics Model
 DYNAMICS_MODEL_CONFIG = {
-    'input_dim': 11,           # 위치(4) + CLR(3) + 제어(4)
-    'output_dim': 3,           # diff_CLR (3)
-    'hidden_dims': [128, 128], # Hidden layer 구조
-    'activation': 'relu',      # 활성화 함수
-    'use_layer_norm': True,    # LayerNorm 사용 여부
-    'dropout': 0.0,            # Dropout 비율 (0 = 사용 안함)
+    'input_dim': 11,                      # 위치(4) + CLR(3) + 제어(4)
+    'output_dim': 3,                      # diff_CLR (3)
+    'hidden_dims': [512, 256, 256, 128],  # Hidden layer 구조 (4 layers, ~14x 파라미터)
+    'activation': 'relu',                 # 활성화 함수
+    'use_layer_norm': True,               # LayerNorm 사용 여부
+    'dropout': 0.1,                       # Dropout 비율 (깊어진 네트워크 과적합 방지)
 }
 
 # 앙상블 설정
@@ -36,16 +36,16 @@ ENSEMBLE_CONFIG = {
 TRAINING_CONFIG = {
     # 옵티마이저
     'optimizer': 'adam',
-    'learning_rate': 1e-3,
+    'learning_rate': 5e-4,     # 깊어진 네트워크 안정 수렴을 위해 낮춤
     'weight_decay': 1e-5,
     'lr_scheduler': 'cosine',  # 'step', 'cosine', 'none'
-    'lr_decay_steps': [50, 80],
+    'lr_decay_steps': [100, 160],
     'lr_decay_gamma': 0.1,
 
     # 학습 파라미터
     'batch_size': 256,
-    'epochs': 100,
-    'early_stopping_patience': 20,
+    'epochs': 200,             # 더 깊은 네트워크 수렴 보장
+    'early_stopping_patience': 30,
     'min_delta': 1e-6,
 
     # 정규화

@@ -708,6 +708,213 @@ class ModelTrainer:
         self.logger.info("\n✓ Constrained MLP 학습 완료")
         self.logger.info("="*80)
 
+    def train_mbrl_ensemble(
+        self,
+        hidden_dims: List[int] = None,
+        n_ensembles: int = 5,
+        epochs: int = 200,
+        batch_size: int = 256,
+        learning_rate: float = 5e-4,
+        weight_decay: float = 1e-5,
+        dropout: float = 0.1,
+        bootstrap_ratio: float = 0.8,
+        early_stopping_patience: int = 30,
+        device: str = 'cpu'
+    ):
+        """
+        MBRL Probabilistic Ensemble 학습
+
+        MBRL 자체 11개 피처(위치4+CLR3+제어4)로 독립 학습 후
+        예측 평균(mean)만 ModelTrainer 파이프라인에 주입하여 타 모델과 비교.
+
+        Parameters
+        ----------
+        hidden_dims : list
+            Hidden layer 차원 리스트 (None이면 [512,256,256,128])
+        n_ensembles : int
+            앙상블 멤버 수
+        epochs : int
+            최대 학습 에포크
+        batch_size : int
+            미니배치 크기
+        learning_rate : float
+            Adam 학습률
+        weight_decay : float
+            L2 정규화
+        dropout : float
+            Dropout 비율
+        bootstrap_ratio : float
+            각 멤버의 Bootstrap 샘플링 비율
+        early_stopping_patience : int
+            Early stopping patience
+        device : str
+            'cpu' 또는 'cuda'
+        """
+        if not PYTORCH_AVAILABLE:
+            self.logger.error("PyTorch가 설치되지 않아 MBRL_ensemble 학습을 건너뜁니다.")
+            return
+
+        if hidden_dims is None:
+            hidden_dims = [512, 256, 256, 128]
+
+        self.logger.info("="*80)
+        self.logger.info("MBRL Probabilistic Ensemble 학습")
+        self.logger.info(f"  hidden_dims={hidden_dims}, n_ensembles={n_ensembles}, epochs={epochs}")
+        self.logger.info("="*80)
+
+        # ------------------------------------------------------------------
+        # 1. MBRL 전용 11개 피처 추출 (zone_id → 위치 계산)
+        # ------------------------------------------------------------------
+        try:
+            import sys as _sys
+            _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            from apc_optimization.mbrl.data_processor import PETSDataProcessor
+        except ImportError as e:
+            self.logger.error(f"MBRL 모듈 임포트 실패: {e}")
+            return
+
+        processor = PETSDataProcessor(normalize=False)
+        try:
+            X_mbrl, Y_mbrl = processor.extract_features(self.data)
+        except Exception as e:
+            self.logger.error(f"MBRL 피처 추출 실패: {e}")
+            return
+
+        self.logger.info(f"  MBRL 피처 shape: X={X_mbrl.shape}, Y={Y_mbrl.shape}")
+
+        # ------------------------------------------------------------------
+        # 2. 동일 조건 train/test 분할 (random_state 동일 → 동일 샘플 인덱스)
+        # ------------------------------------------------------------------
+        X_tr, X_te, Y_tr, Y_te = train_test_split(
+            X_mbrl, Y_mbrl,
+            test_size=0.3,
+            random_state=self.random_state
+        )
+
+        # validation split (train의 20%)
+        X_tr, X_val, Y_tr, Y_val = train_test_split(
+            X_tr, Y_tr,
+            test_size=0.2,
+            random_state=self.random_state
+        )
+
+        self.logger.info(f"  Train: {len(X_tr)}, Val: {len(X_val)}, Test: {len(X_te)}")
+
+        # ------------------------------------------------------------------
+        # 3. 입출력 정규화 (train fit → val/test transform)
+        # ------------------------------------------------------------------
+        scaler_X = StandardScaler().fit(X_tr)
+        scaler_Y = StandardScaler().fit(Y_tr)
+
+        X_tr_s  = scaler_X.transform(X_tr).astype(np.float32)
+        X_val_s = scaler_X.transform(X_val).astype(np.float32)
+        X_te_s  = scaler_X.transform(X_te).astype(np.float32)
+        Y_tr_s  = scaler_Y.transform(Y_tr).astype(np.float32)
+        Y_val_s = scaler_Y.transform(Y_val).astype(np.float32)
+
+        # ------------------------------------------------------------------
+        # 4. EnsembleWrapper 초기화
+        # ------------------------------------------------------------------
+        from apc_optimization.mbrl.ensemble_nn import EnsembleWrapper
+
+        input_dim  = X_tr_s.shape[1]   # 11
+        output_dim = Y_tr_s.shape[1]   # 3
+
+        ensemble = EnsembleWrapper(
+            n_ensembles=n_ensembles,
+            input_dim=input_dim,
+            output_dim=output_dim,
+            hidden_dims=hidden_dims,
+            device=device,
+            dropout=dropout,
+            use_layer_norm=True,
+        )
+        ensemble.init_optimizers(lr=learning_rate, weight_decay=weight_decay)
+
+        total_params_per = sum(p.numel() for p in ensemble.models[0].parameters())
+        self.logger.info(f"  단일 모델 파라미터: {total_params_per:,}개")
+        self.logger.info(f"  앙상블 총 파라미터: {total_params_per * n_ensembles:,}개")
+
+        # ------------------------------------------------------------------
+        # 5. 학습 루프 (Bootstrap + Early Stopping)
+        # ------------------------------------------------------------------
+        from torch.utils.data import TensorDataset, DataLoader as TorchDataLoader
+
+        X_tr_t  = torch.FloatTensor(X_tr_s).to(device)
+        Y_tr_t  = torch.FloatTensor(Y_tr_s).to(device)
+        X_val_t = torch.FloatTensor(X_val_s).to(device)
+        Y_val_t = torch.FloatTensor(Y_val_s).to(device)
+
+        n_train = len(X_tr_t)
+        best_val_loss = float('inf')
+        patience_counter = 0
+        best_states = [m.state_dict() for m in ensemble.models]
+
+        for epoch in range(epochs):
+            # --- Train: 각 멤버별 Bootstrap 샘플링 ---
+            total_nll = 0.0
+            for model_i, (m, opt) in enumerate(zip(ensemble.models, ensemble.optimizers)):
+                m.train()
+                n_boot = int(n_train * bootstrap_ratio)
+                idx = torch.randint(0, n_train, (n_boot,))
+                X_boot = X_tr_t[idx]
+                Y_boot = Y_tr_t[idx]
+
+                dataset = TensorDataset(X_boot, Y_boot)
+                loader  = TorchDataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+                epoch_nll = 0.0
+                for X_b, Y_b in loader:
+                    opt.zero_grad()
+                    loss, info = m.compute_loss(X_b, Y_b)
+                    loss.backward()
+                    torch.nn.utils.clip_grad_norm_(m.parameters(), 1.0)
+                    opt.step()
+                    epoch_nll += info['nll']
+                total_nll += epoch_nll / len(loader)
+
+            avg_nll = total_nll / n_ensembles
+
+            # --- Validation ---
+            val_mean, _ = ensemble.predict(X_val_t, return_uncertainty=False)
+            val_mse = float(((val_mean - Y_val_t) ** 2).mean().item())
+
+            if (epoch + 1) % 20 == 0:
+                self.logger.info(
+                    f"  Epoch [{epoch+1:>3}/{epochs}] "
+                    f"Train NLL: {avg_nll:.4f}  Val MSE: {val_mse:.6f}"
+                )
+
+            # --- Early Stopping ---
+            if val_mse < best_val_loss - 1e-6:
+                best_val_loss = val_mse
+                best_states = [m.state_dict() for m in ensemble.models]
+                patience_counter = 0
+            else:
+                patience_counter += 1
+                if patience_counter >= early_stopping_patience:
+                    self.logger.info(f"  Early stopping at epoch {epoch+1} (best val MSE: {best_val_loss:.6f})")
+                    break
+
+        # 최적 가중치 복원
+        for m, state in zip(ensemble.models, best_states):
+            m.load_state_dict(state)
+
+        # ------------------------------------------------------------------
+        # 6. 테스트셋 예측 → 역정규화 → predictions 등록
+        # ------------------------------------------------------------------
+        X_te_t = torch.FloatTensor(X_te_s).to(device)
+        mean_pred_t, _ = ensemble.predict(X_te_t, return_uncertainty=False)
+        mean_pred_s = mean_pred_t.cpu().numpy()
+        mean_pred   = scaler_Y.inverse_transform(mean_pred_s)  # 원본 스케일 복원
+
+        self.models['MBRL_ensemble']      = ensemble
+        self.predictions['MBRL_ensemble'] = mean_pred  # (N_test, 3)
+
+        self.logger.info(f"\n✓ MBRL_ensemble 학습 완료")
+        self.logger.info(f"  Best Val MSE (정규화 공간): {best_val_loss:.6f}")
+        self.logger.info("="*80)
+
     def _plot_training_curve(self, losses: List[float], model_name: str):
         """학습 곡선 시각화"""
         fig, ax = plt.subplots(figsize=(10, 6))

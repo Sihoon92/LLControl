@@ -213,6 +213,27 @@ def main():
     )
 
     # ======================================================================
+    # Step 5-2: MBRL Probabilistic Ensemble (독립 11개 피처)
+    # ======================================================================
+    print("\n" + "="*80)
+    print("[Step 5-2] MBRL Probabilistic Ensemble NN (독립 11개 피처 사용)")
+    print("="*80)
+
+    print("\n[5-2] MBRL Ensemble (hidden=[512,256,256,128], n_ensembles=5)...")
+    trainer.train_mbrl_ensemble(
+        hidden_dims=[512, 256, 256, 128],
+        n_ensembles=5,
+        epochs=200,
+        batch_size=256,
+        learning_rate=5e-4,
+        weight_decay=1e-5,
+        dropout=0.1,
+        bootstrap_ratio=0.8,
+        early_stopping_patience=30,
+        device='cpu'
+    )
+
+    # ======================================================================
     # Step 6: 모델 평가
     # ======================================================================
     print("\n" + "="*80)
