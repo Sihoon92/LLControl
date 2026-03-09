@@ -185,7 +185,8 @@ def run_cem(
     if result.final_cost_breakdown:
         print("  [비용 상세]")
         for k, v in result.final_cost_breakdown.items():
-            print(f"  {k:<20}: {v:.6f}")
+            if isinstance(v, (int, float, np.floating, np.integer)):
+                print(f"  {k:<20}: {float(v):.6f}")
 
     print("=" * 70)
 

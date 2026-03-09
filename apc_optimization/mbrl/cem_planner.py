@@ -159,6 +159,8 @@ class CEMPlanner:
             scale=std,
             size=(self.n_samples, self.horizon, N_CONTROL_VARS),
         )
+        # delta_GV 정수 반올림 (학습 데이터가 정수값으로 구성되어 있으므로 OOD 방지)
+        sequences[:, :, :N_GV] = np.round(sequences[:, :, :N_GV])
         # bounds 클램핑
         sequences = np.clip(sequences, self.bounds_lower, self.bounds_upper)
         return sequences  # (n_samples, horizon, 12)
