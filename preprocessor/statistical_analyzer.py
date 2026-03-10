@@ -1,6 +1,10 @@
 """
-통계 분석 모듈 v1.0
+통계 분석 모듈 v2.0
 제어 효과 검증을 위한 통계적 분석 기능
+
+v2.0 변경사항:
+- Low/Mid/High 분포 비율 변화 검정 추가 (카이제곱 검정)
+- 종합 판단에 분포 유의성 반영
 """
 
 import pandas as pd
@@ -78,10 +82,15 @@ class StatisticalAnalyzer:
             before_data, after_data, ucl, lcl, target
         )
 
+        # Low/Mid/High 분포 비율 변화 검정 (카이제곱)
+        distribution_test = self.compute_distribution_test(
+            before_data, after_data, ucl, lcl
+        )
+
         # 종합 판단
         summary = self._create_summary(
             basic_stats, p_values, effect_sizes,
-            variance_analysis, cpk_analysis, alpha
+            variance_analysis, cpk_analysis, distribution_test, alpha
         )
 
         # 결과 통합
@@ -91,6 +100,7 @@ class StatisticalAnalyzer:
             **effect_sizes,
             **variance_analysis,
             **cpk_analysis,
+            **distribution_test,
             **summary
         }
 
@@ -364,6 +374,183 @@ class StatisticalAnalyzer:
 
         return result
 
+    def compute_distribution_test(
+        self,
+        before_data: np.ndarray,
+        after_data: np.ndarray,
+        ucl: float,
+        lcl: float,
+        alpha: float = 0.05
+    ) -> Dict:
+        """
+        Low/Mid/High 분포 비율 변화의 유의성 검정
+
+        UCL~LCL 범위를 3등분하여 Low/Mid/High 구간을 정의하고,
+        제어 전/후 데이터가 각 구간에 몇 개씩 분포하는지 count한 뒤
+        카이제곱 검정으로 분포 변화가 통계적으로 유의미한지 검증합니다.
+
+        이 검정이 필요한 이유:
+        - 기존 t-test/Mann-Whitney는 평균/중앙값 변화만 검정
+        - MBRL 모델의 목표는 "Low/Mid/High 비율 변화 예측"이므로
+          비율 자체의 변화가 유의미한지 직접 검정해야 함
+
+        Parameters:
+        -----------
+        before_data : np.ndarray
+            제어 전 밀도계 raw 데이터
+        after_data : np.ndarray
+            제어 후 밀도계 raw 데이터
+        ucl : float
+            Upper Control Limit
+        lcl : float
+            Lower Control Limit
+        alpha : float
+            유의수준 (기본값: 0.05)
+
+        Returns:
+        --------
+        Dict
+            분포 검정 결과 (비율, 카이제곱 통계량, p-value 등)
+        """
+        result = {}
+
+        spec_range = ucl - lcl
+        if spec_range <= 0:
+            self.logger.warning(f"UCL({ucl}) <= LCL({lcl}): 분포 검정 불가")
+            return self._empty_distribution_result()
+
+        # 3등분 경계: Low / Mid / High
+        boundary_low_mid = lcl + spec_range / 3.0
+        boundary_mid_high = lcl + 2.0 * spec_range / 3.0
+
+        # 구간 분류 함수
+        def classify(data: np.ndarray) -> np.ndarray:
+            """0=Low, 1=Mid, 2=High"""
+            labels = np.zeros(len(data), dtype=int)
+            labels[data >= boundary_low_mid] = 1
+            labels[data >= boundary_mid_high] = 2
+            return labels
+
+        before_labels = classify(before_data)
+        after_labels = classify(after_data)
+
+        # 각 구간별 count
+        before_counts = np.array([
+            np.sum(before_labels == 0),
+            np.sum(before_labels == 1),
+            np.sum(before_labels == 2),
+        ])
+        after_counts = np.array([
+            np.sum(after_labels == 0),
+            np.sum(after_labels == 1),
+            np.sum(after_labels == 2),
+        ])
+
+        before_total = max(len(before_data), 1)
+        after_total = max(len(after_data), 1)
+
+        # 비율 계산
+        before_ratios = before_counts / before_total
+        after_ratios = after_counts / after_total
+
+        result['before_low_ratio'] = float(before_ratios[0])
+        result['before_mid_ratio'] = float(before_ratios[1])
+        result['before_high_ratio'] = float(before_ratios[2])
+        result['after_low_ratio'] = float(after_ratios[0])
+        result['after_mid_ratio'] = float(after_ratios[1])
+        result['after_high_ratio'] = float(after_ratios[2])
+
+        # 비율 변화량
+        result['low_ratio_change'] = float(after_ratios[0] - before_ratios[0])
+        result['mid_ratio_change'] = float(after_ratios[1] - before_ratios[1])
+        result['high_ratio_change'] = float(after_ratios[2] - before_ratios[2])
+
+        # Mid 비율 개선 여부
+        result['mid_ratio_improved'] = bool(after_ratios[1] > before_ratios[1])
+
+        # 카이제곱 검정: 2×3 분할표 (before/after × Low/Mid/High)
+        contingency_table = np.array([before_counts, after_counts])
+
+        # 모든 셀이 0이면 검정 불가
+        if contingency_table.sum() == 0 or np.all(contingency_table.sum(axis=0) == 0):
+            result['chi2_statistic'] = np.nan
+            result['chi2_pvalue'] = np.nan
+            result['chi2_dof'] = np.nan
+            result['distribution_significant'] = False
+            return result
+
+        # 기대빈도가 5 미만인 셀이 있으면 Fisher exact 대신 경고 후 진행
+        try:
+            chi2_stat, chi2_pvalue, dof, expected = stats.chi2_contingency(
+                contingency_table
+            )
+            result['chi2_statistic'] = float(chi2_stat)
+            result['chi2_pvalue'] = float(chi2_pvalue)
+            result['chi2_dof'] = int(dof)
+            result['distribution_significant'] = bool(chi2_pvalue < alpha)
+
+            # 기대빈도 경고
+            min_expected = expected.min()
+            if min_expected < 5:
+                self.logger.warning(
+                    f"카이제곱 검정: 최소 기대빈도={min_expected:.1f} < 5. "
+                    f"데이터 수가 적어 결과 해석에 주의 필요."
+                )
+                result['chi2_low_expected_warning'] = True
+            else:
+                result['chi2_low_expected_warning'] = False
+
+        except Exception as e:
+            self.logger.warning(f"카이제곱 검정 오류: {e}")
+            result['chi2_statistic'] = np.nan
+            result['chi2_pvalue'] = np.nan
+            result['chi2_dof'] = np.nan
+            result['distribution_significant'] = False
+            result['chi2_low_expected_warning'] = True
+
+        # Cramér's V (효과 크기 — 카이제곱 검정의 실질적 유의성)
+        n_total = contingency_table.sum()
+        k = min(contingency_table.shape) - 1  # min(rows, cols) - 1
+        if n_total > 0 and k > 0 and not np.isnan(result.get('chi2_statistic', np.nan)):
+            cramers_v = np.sqrt(result['chi2_statistic'] / (n_total * k))
+            result['cramers_v'] = float(cramers_v)
+            # Cramér's V 해석: <0.1 negligible, <0.3 small, <0.5 medium, ≥0.5 large
+            if cramers_v < 0.1:
+                result['distribution_effect_size'] = 'negligible'
+            elif cramers_v < 0.3:
+                result['distribution_effect_size'] = 'small'
+            elif cramers_v < 0.5:
+                result['distribution_effect_size'] = 'medium'
+            else:
+                result['distribution_effect_size'] = 'large'
+        else:
+            result['cramers_v'] = np.nan
+            result['distribution_effect_size'] = 'unknown'
+
+        return result
+
+    def _empty_distribution_result(self) -> Dict:
+        """분포 검정 빈 결과"""
+        return {
+            'before_low_ratio': np.nan,
+            'before_mid_ratio': np.nan,
+            'before_high_ratio': np.nan,
+            'after_low_ratio': np.nan,
+            'after_mid_ratio': np.nan,
+            'after_high_ratio': np.nan,
+            'low_ratio_change': np.nan,
+            'mid_ratio_change': np.nan,
+            'high_ratio_change': np.nan,
+            'mid_ratio_improved': False,
+            'chi2_statistic': np.nan,
+            'chi2_pvalue': np.nan,
+            'chi2_dof': np.nan,
+            'distribution_significant': False,
+            'chi2_low_expected_warning': True,
+            'cramers_v': np.nan,
+            'distribution_effect_size': 'unknown',
+        }
+
     def _calculate_cpk(
         self,
         data: np.ndarray,
@@ -442,6 +629,7 @@ class StatisticalAnalyzer:
         effect_sizes: Dict,
         variance_analysis: Dict,
         cpk_analysis: Dict,
+        distribution_test: Dict,
         alpha: float = 0.05
     ) -> Dict:
         """
@@ -459,6 +647,8 @@ class StatisticalAnalyzer:
             분산 분석 결과
         cpk_analysis : Dict
             Cpk 분석 결과
+        distribution_test : Dict
+            Low/Mid/High 분포 비율 변화 검정 결과
         alpha : float
             유의수준
 
@@ -492,11 +682,23 @@ class StatisticalAnalyzer:
         cpk_improved = cpk_analysis.get('cpk_improved', False)
         summary['cpk_improved'] = cpk_improved
 
+        # 분포 비율 유의성 (카이제곱 검정)
+        dist_significant = distribution_test.get('distribution_significant', False)
+        summary['distribution_significant'] = dist_significant
+
+        # Mid 비율 개선 여부
+        mid_improved = distribution_test.get('mid_ratio_improved', False)
+        summary['mid_ratio_improved'] = mid_improved
+
         # 종합 판단: 제어 효과 있음
-        # 조건: (통계적 유의 OR 실질적 유의) AND (분산 개선 OR Cpk 개선)
+        # 조건: (통계적 유의 OR 실질적 유의 OR 분포 유의) AND (분산 개선 OR Cpk 개선 OR Mid 개선)
         summary['control_effective'] = (
-            (summary['statistically_significant'] or summary['practically_significant']) and
-            (summary['variance_improved'] or summary['cpk_improved'])
+            (summary['statistically_significant'] or
+             summary['practically_significant'] or
+             summary['distribution_significant']) and
+            (summary['variance_improved'] or
+             summary['cpk_improved'] or
+             summary['mid_ratio_improved'])
         )
 
         return summary
@@ -564,10 +766,29 @@ class StatisticalAnalyzer:
             'cpk_change_percent': np.nan,
             'before_cpk_grade': 'unknown',
             'after_cpk_grade': 'unknown',
+            'before_low_ratio': np.nan,
+            'before_mid_ratio': np.nan,
+            'before_high_ratio': np.nan,
+            'after_low_ratio': np.nan,
+            'after_mid_ratio': np.nan,
+            'after_high_ratio': np.nan,
+            'low_ratio_change': np.nan,
+            'mid_ratio_change': np.nan,
+            'high_ratio_change': np.nan,
+            'mid_ratio_improved': False,
+            'chi2_statistic': np.nan,
+            'chi2_pvalue': np.nan,
+            'chi2_dof': np.nan,
+            'distribution_significant': False,
+            'chi2_low_expected_warning': True,
+            'cramers_v': np.nan,
+            'distribution_effect_size': 'unknown',
             'statistically_significant': False,
             'significance_level': 'unknown',
             'practically_significant': False,
             'variance_improved': False,
+            'distribution_significant': False,
+            'mid_ratio_improved': False,
             'control_effective': False
         }
 
