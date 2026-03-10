@@ -309,6 +309,10 @@ def _load_excel_with_xlwings(
         # 데이터 읽기 (헤더 포함)
         data = sheet.used_range.options(pd.DataFrame, header=1, index=False).value
 
+        # xlwings는 빈 헤더 셀을 None으로 반환 → 해당 컬럼 제거
+        if data is not None:
+            data = data.loc[:, data.columns.notna()]
+
         logger.debug(f"Excel 로드 완료: {file_path} (시트: {sheet_name}, 행: {len(data) if data is not None else 0})")
 
         return data
