@@ -19,6 +19,7 @@ CEM 알고리즘:
 """
 
 import numpy as np
+from scipy.stats import truncnorm
 import time
 import logging
 from typing import Dict, List, Tuple, Optional
@@ -79,7 +80,8 @@ class CEMPlanner:
         self.n_elite            = cfg['n_elite']               # 50
         self.n_iterations       = cfg['n_iterations']          # 5
         self.alpha              = cfg['alpha']                 # 0.1  (momentum)
-        self.uncertainty_penalty = cfg['uncertainty_penalty']  # 0.1
+        self.uncertainty_penalty = cfg['uncertainty_penalty']  # 2.0
+        self.discount_factor    = cfg.get('discount_factor', 0.9)
         self.init_mean          = cfg.get('init_mean', 0.0)
         self.init_std           = cfg.get('init_std', 0.5)
 
@@ -152,16 +154,34 @@ class CEMPlanner:
         std: np.ndarray,    # (horizon, 12)
     ) -> np.ndarray:        # (n_samples, horizon, 12)
         """
-        현재 Gaussian 분포에서 액션 시퀀스 샘플링 후 bounds 클램핑
+        Truncated Normal Distribution 기반 액션 시퀀스 샘플링
+
+        기존 Normal + clip 방식은 경계에 샘플이 pile-up되어
+        극단값 비율이 과도하게 높아지는 문제가 있었음.
+        Truncated Normal은 경계 내에서 균일하게 분포하여
+        더 효과적인 탐색이 가능함.
         """
-        sequences = self.rng.normal(
-            loc=mean,
-            scale=std,
-            size=(self.n_samples, self.horizon, N_CONTROL_VARS),
-        )
+        sequences = np.zeros((self.n_samples, self.horizon, N_CONTROL_VARS))
+
+        for h in range(self.horizon):
+            for d in range(N_CONTROL_VARS):
+                mu = mean[h, d]
+                sigma = max(std[h, d], 1e-6)
+                lo = self.bounds_lower[d]
+                hi = self.bounds_upper[d]
+
+                # truncnorm 파라미터: (a, b)는 표준정규 기준의 절단 위치
+                a = (lo - mu) / sigma
+                b = (hi - mu) / sigma
+                sequences[:, h, d] = truncnorm.rvs(
+                    a, b, loc=mu, scale=sigma,
+                    size=self.n_samples,
+                    random_state=self.rng.integers(0, 2**31),
+                )
+
         # delta_GV 정수 반올림 (학습 데이터가 정수값으로 구성되어 있으므로 OOD 방지)
         sequences[:, :, :N_GV] = np.round(sequences[:, :, :N_GV])
-        # bounds 클램핑
+        # 반올림 후 bounds 재확인
         sequences = np.clip(sequences, self.bounds_lower, self.bounds_upper)
         return sequences  # (n_samples, horizon, 12)
 
@@ -188,6 +208,9 @@ class CEMPlanner:
             action    = action_sequence[t]         # (12,)
             delta_gv  = action[:N_GV]              # (11,)
             delta_rpm = float(action[N_GV])        # scalar
+
+            # 시간 할인: 먼 미래 예측일수록 가중치 감쇠 (compounding error 완화)
+            discount = self.discount_factor ** t
 
             # 제약 위반 시 큰 페널티 + 롤아웃 중단 (거부 방식)
             is_feasible, _ = self.check_constraints(action)
@@ -223,7 +246,7 @@ class CEMPlanner:
                 step_cost += self.uncertainty_penalty * step_unc
                 total_uncertainty += step_unc
 
-            total_cost += step_cost
+            total_cost += discount * step_cost
             clr_t = next_clr  # 상태 전이
 
         self.eval_count += 1

@@ -72,12 +72,13 @@ class CostFunctionEvaluator:
                      p_mid_array: np.ndarray,
                      p_high_array: np.ndarray) -> Tuple[float, Dict]:
         """
-        품질 비용 계산
+        품질 비용 계산 (비선형 강화 버전)
 
         각 Zone i에 대해:
-            Q_i = (1 - P_Mid(i))² + α·[P_Low(i)² + P_High(i)²]
+            Q_i = |1 - P_Mid(i)|^0.5 + α·[P_Low(i)^0.5 + P_High(i)^0.5]
 
-        Quality_Cost = mean(Q_i) / max_possible_Q
+        비선형 sqrt 기반으로 P_Mid가 0.8~0.95 근처일 때도 충분한 gradient 제공.
+        기존 제곱(²) 방식은 이미 좋은 상태에서 개선 신호가 너무 미약했음.
 
         Args:
             p_low_array: Shape (n_zones,) - 각 Zone의 P_Low
@@ -90,15 +91,14 @@ class CostFunctionEvaluator:
         alpha = QUALITY_COST_PARAMS['alpha']
         target_p_mid = QUALITY_COST_PARAMS['target_p_mid']
 
-        # 개별 비용 계산
+        # 비선형 비용: sqrt 기반으로 미세 차이에도 강한 신호
         q_values = (
-            (target_p_mid - p_mid_array) ** 2 +
-            alpha * (p_low_array ** 2 + p_high_array ** 2)
+            np.abs(target_p_mid - p_mid_array) ** 0.5 +
+            alpha * (np.abs(p_low_array) ** 0.5 + np.abs(p_high_array) ** 0.5)
         )
 
-        # 최악의 경우: P_Mid=0 (균등 분포에서 P=0.33)
-        # Q_worst = (1 - 0)² + α·(0.33² + 0.33²) ≈ 1 + 0.218 = 1.218
-        q_worst = (target_p_mid - 0.0) ** 2 + alpha * 2 * (1.0/3) ** 2
+        # 최악의 경우: P_Mid=0, P_Low=P_High=0.5
+        q_worst = (target_p_mid ** 0.5) + alpha * 2 * (0.5 ** 0.5)
 
         # 정규화
         quality_cost_normalized = np.mean(q_values) / q_worst
@@ -312,17 +312,14 @@ class CostFunctionEvaluator:
         c_cost, c_detail = self.control_cost(delta_gv, delta_rpm)
         s_cost, s_detail = self.safety_cost(delta_gv, delta_rpm, p_high_array, p_low_array)
 
-        # 가중 합 (비정규화된 가중치)
-        total_cost = (
-            self.weights['quality'] * q_cost +
-            self.weights['balance'] * b_cost +
-            self.weights['control'] * c_cost +
-            self.weights['safety'] * s_cost
+        # 가중 합 (정규화된 가중치 사용 — 신호 감쇠 방지)
+        # 각 cost는 이미 [0,1] 범위이므로, 가중치 비율만 반영하면 충분
+        total_cost_normalized = (
+            self.weights_normalized['quality'] * q_cost +
+            self.weights_normalized['balance'] * b_cost +
+            self.weights_normalized['control'] * c_cost +
+            self.weights_normalized['safety'] * s_cost
         )
-
-        # 전체 가중치로 정규화
-        total_weight = sum(self.weights.values())
-        total_cost_normalized = total_cost / total_weight
 
         # 상세 정보
         breakdown = {

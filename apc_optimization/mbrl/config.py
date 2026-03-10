@@ -73,7 +73,7 @@ DATA_CONFIG = {
 
     # 시퀀스 설정
     'sequence_length': 1,      # 단일 step 예측
-    'horizon': 5,              # Planning horizon
+    'horizon': 3,              # Planning horizon (planner와 동기화)
 
     # 데이터 증강
     'data_augmentation': False,
@@ -86,24 +86,25 @@ DATA_CONFIG = {
 
 PLANNER_CONFIG = {
     # CEM 파라미터
-    'horizon': 5,              # 예측 구간 (step)
+    'horizon': 3,              # 예측 구간 (step) — 축소: compounding error 완화
     'n_samples': 500,          # 샘플 수
     'n_elite': 50,             # Elite 수
     'n_iterations': 5,         # CEM 반복 횟수
     'alpha': 0.1,              # 분포 업데이트 가중치
+    'discount_factor': 0.9,    # 시간 할인율 — 먼 미래 예측의 가중치 감쇠
 
-    # 액션 제약
+    # 액션 제약 (config.py의 GV_GAP_BOUNDS, RPM_BOUNDS와 동기화)
     'action_bounds': {
-        'gv': (-2.0, 2.0),     # GV 범위 (mm)
-        'rpm': (-50, 50),      # RPM 범위
+        'gv': (-20.0, 20.0),   # GV 범위 (mm)
+        'rpm': (-2, 2),        # RPM 범위
     },
 
     # 초기 분포
     'init_mean': 0.0,
     'init_std': 0.5,
 
-    # 불확실성 페널티
-    'uncertainty_penalty': 0.1,  # 불확실성에 대한 가중치
+    # 불확실성 페널티 (강화: OOD 영역 적극 회피)
+    'uncertainty_penalty': 2.0,  # 불확실성에 대한 가중치 (기존 0.1 → 2.0)
 }
 
 # ============================================================================

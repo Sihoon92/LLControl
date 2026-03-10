@@ -50,18 +50,18 @@ N_CONTROL_VARS = N_GV + N_RPM  # 총 12개
 
 # 경계값 (Bounds)
 GV_GAP_BOUNDS = {
-    'lower': -2.0,  # mm
-    'upper': 2.0,   # mm
+    'lower': -20.0,  # mm
+    'upper': 20.0,   # mm
 }
 
 RPM_BOUNDS = {
-    'lower': -50,  # rpm
-    'upper': 50,   # rpm
+    'lower': -2,   # rpm
+    'upper': 2,    # rpm
 }
 
 # 제약 조건
-GV_ADJACENT_MAX_DIFF = 0.5  # 인접 Zone 최대 차이 (mm)
-GV_TOTAL_CHANGE_MAX = 10.0  # 전체 변화량 상한 (mm)
+GV_ADJACENT_MAX_DIFF = 40  # 인접 Zone 최대 차이 (mm)
+GV_TOTAL_CHANGE_MAX = 400  # 전체 변화량 상한 (mm)
 
 # UCL/LCL 범위 (부분적 제어 시 사용)
 CONTROL_LIMITS = {
@@ -75,10 +75,10 @@ CONTROL_LIMITS = {
 
 # 4.1 가중치 (Multi-Objective)
 COST_WEIGHTS = {
-    'quality': 10.0,   # w₁: 품질 최우선
+    'quality': 15.0,   # w₁: 품질 최우선 (강화)
     'balance': 5.0,    # w₂: 균형 중요
-    'control': 1.0,    # w₃: 제어 최소화
-    'safety': 15.0,    # w₄: 안전 최우선
+    'control': 0.3,    # w₃: 제어 최소화 (대폭 축소 - ΔGV=0 수렴 방지)
+    'safety': 10.0,    # w₄: 안전 (완화 - 제약 넓힘에 맞춤)
 }
 
 # 4.2 품질 비용 (Quality Cost)
@@ -96,8 +96,8 @@ BALANCE_COST_PARAMS = {
 
 # 4.4 제어 비용 (Control Cost)
 CONTROL_COST_PARAMS = {
-    'gv_max': 2.0,     # GV 정규화 기준값 (mm)
-    'rpm_max': 50,     # RPM 정규화 기준값
+    'gv_max': 20.0,    # GV 정규화 기준값 (mm)
+    'rpm_max': 2,      # RPM 정규화 기준값
     'beta': 0.7,       # GV 가중치
     'gamma': 0.3,      # RPM 가중치
 }
