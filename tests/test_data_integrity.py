@@ -13,6 +13,8 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
+from utils import load_file
+
 # PreprocessConfig를 직접 import하면 xlwings 등 무거운 의존성이 딸려옴.
 # 테스트에 필요한 상수만 직접 정의한다.
 N_ZONES = 11
@@ -36,7 +38,7 @@ def zone_analysis_df():
     path = os.path.join(OUTPUT_DIR, OUTPUT_ZONE_ANALYSIS)
     if not os.path.exists(path):
         pytest.skip(f"파일 없음: {path}")
-    return pd.read_excel(path)
+    return load_file(path)
 
 
 @pytest.fixture(scope="module")
@@ -45,7 +47,7 @@ def statistical_analysis_df():
     path = os.path.join(OUTPUT_DIR, OUTPUT_STATISTICAL_ANALYSIS)
     if not os.path.exists(path):
         pytest.skip(f"파일 없음: {path}")
-    return pd.read_excel(path)
+    return load_file(path)
 
 
 @pytest.fixture(scope="module")
@@ -54,7 +56,7 @@ def model_data_df():
     for fname in [OUTPUT_MODEL_DATA, 'model_test_data.xlsx']:
         path = os.path.join(OUTPUT_DIR, fname)
         if os.path.exists(path):
-            return pd.read_excel(path)
+            return load_file(path)
     pytest.skip(f"모델 데이터 파일 없음: {OUTPUT_DIR}")
 
 
@@ -64,7 +66,7 @@ def meaningful_changes_df():
     path = os.path.join(OUTPUT_DIR, OUTPUT_3RD)
     if not os.path.exists(path):
         pytest.skip(f"파일 없음: {path}")
-    return pd.read_excel(path)
+    return load_file(path)
 
 
 @pytest.fixture(scope="module")
@@ -73,7 +75,7 @@ def densitometer_df():
     path = os.path.join(OUTPUT_DIR, OUTPUT_DENSITOMETER)
     if not os.path.exists(path):
         pytest.skip(f"파일 없음: {path}")
-    return pd.read_excel(path)
+    return load_file(path)
 
 
 # ============================================================================
