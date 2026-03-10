@@ -327,7 +327,10 @@ class PerZoneProbabilisticEnsemble:
             y_pred, uncertainty = self.ensemble.predict(x, return_uncertainty=True)
 
         y_pred = y_pred.cpu().numpy()
-        uncertainty = uncertainty.cpu().numpy()
+        if uncertainty is not None:
+            uncertainty = uncertainty.cpu().numpy()
+        else:
+            uncertainty = np.zeros_like(y_pred)
 
         # 메트릭 계산
         errors = y_true - y_pred

@@ -340,7 +340,7 @@ class CEMPlanner:
         std = np.minimum(std, action_range)
 
         best_cost     = float('inf')
-        best_sequence = None
+        best_sequence: Optional[np.ndarray] = None
 
         # ── CEM 반복 ─────────────────────────────────────────────────────────
         for iteration in range(self.n_iterations):
@@ -379,6 +379,9 @@ class CEMPlanner:
         elapsed = time.time() - start_time
 
         # ── 최적해 추출 (MPC: 첫 번째 스텝만 실행) ──────────────────────────
+        if best_sequence is None:
+            logger.warning("CEM: feasible한 시퀀스를 찾지 못함. 제로 제어값 반환.")
+            best_sequence = np.zeros((self.horizon, N_CONTROL_VARS))
         x_opt = np.clip(best_sequence[0], self.bounds_lower, self.bounds_upper)
 
         delta_gv_opt  = x_opt[:N_GV]

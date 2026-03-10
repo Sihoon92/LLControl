@@ -140,19 +140,18 @@ class CostFunctionEvaluator:
         min_mean = BALANCE_COST_PARAMS['min_mean']
         mu_safe = max(mu, min_mean)
 
-        balance_cost = sigma_sq / (mu_safe ** 2)
-        balance_cost = np.clip(balance_cost, 0.0, 1.0)
+        balance_cost_val = float(np.clip(sigma_sq / (mu_safe ** 2), 0.0, 1.0))
 
         details = {
             'mu': mu,
             'sigma_sq': sigma_sq,
-            'coefficient_of_variation_sq': balance_cost,
+            'coefficient_of_variation_sq': balance_cost_val,
             'std': np.sqrt(sigma_sq),
             'max_p_mid': np.max(p_mid_array),
             'min_p_mid': np.min(p_mid_array),
         }
 
-        return balance_cost, details
+        return balance_cost_val, details
 
     # ========================================================================
     # 3. 제어 비용 (Control Cost)

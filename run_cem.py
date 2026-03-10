@@ -21,6 +21,7 @@ import logging
 import numpy as np
 import pandas as pd
 from pathlib import Path
+from typing import Optional
 
 # 프로젝트 루트를 Python path에 추가
 PROJECT_ROOT = Path(__file__).parent
@@ -81,15 +82,15 @@ def load_ensemble(model_path: str, device: str = 'cpu') -> PerZoneProbabilisticE
         dropout=DYNAMICS_MODEL_CONFIG['dropout'],
     )
 
-    model_path = Path(model_path)
-    if not model_path.exists():
-        logger.error(f"모델 파일 없음: {model_path}")
+    model_path_resolved = Path(model_path)
+    if not model_path_resolved.exists():
+        logger.error(f"모델 파일 없음: {model_path_resolved}")
         logger.error("먼저 앙상블 모델을 학습하세요:")
         logger.error("  python -m apc_optimization.mbrl.train --data-file outputs/model_training_data.xlsx")
         sys.exit(1)
 
-    model.load(str(model_path))
-    logger.info(f"앙상블 모델 로드 완료: {model_path}")
+    model.load(str(model_path_resolved))
+    logger.info(f"앙상블 모델 로드 완료: {model_path_resolved}")
 
     info = model.get_model_info()
     logger.info(f"  앙상블 수: {info['n_ensembles']}")
@@ -102,7 +103,7 @@ def load_ensemble(model_path: str, device: str = 'cpu') -> PerZoneProbabilisticE
 # 현재 공정 상태 구성 (예시 / CSV)
 # =============================================================================
 
-def build_current_state(clr_csv: str = None) -> dict:
+def build_current_state(clr_csv: Optional[str] = None) -> dict:
     """
     현재 공정 CLR 상태 구성
 
@@ -138,7 +139,7 @@ def build_current_state(clr_csv: str = None) -> dict:
 # 실제 데이터 기반 상태 구성
 # =============================================================================
 
-def load_group_from_data(data_file: str, group_id: int = None, list_groups: bool = False) -> pd.DataFrame:
+def load_group_from_data(data_file: str, group_id: Optional[int] = None, list_groups: bool = False) -> pd.DataFrame:
     """
     model_training_data.xlsx에서 특정 group_id의 11개 zone 행을 로드
 
