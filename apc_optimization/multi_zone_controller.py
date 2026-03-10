@@ -104,6 +104,24 @@ class MultiZoneController:
         """
         제어값 x로부터 각 Zone의 입력 벡터 구성
 
+        ★ 정규화 흐름:
+        -----------
+        1. 입력 제어값 x: 원본 스케일
+           └─ delta_gv: 원본 스케일 (정규화 없음)
+           └─ delta_rpm: 원본 스케일 (정규화 없음)
+
+        2. zone_inputs 구성: 원본 스케일 제어값 포함
+           (예측 모델의 StandardScaler를 위해 원본 필요)
+
+        3. 이후 model.predict_batch(zone_inputs):
+           └─ scaler.transform() ← StandardScaler 자동 적용
+              (학습 데이터: μ, σ 기반)
+
+        4. 비용 함수 (별개 경로):
+           └─ ControlVariableNormalizer.normalize_for_cost()
+              ← MinMax 정규화 (|value|/max, 범위 [0,1])
+              (공정 제약: gv_max=2.0, rpm_max=50)
+
         Args:
             x: Shape (12,) - [△GV₁, ..., △GV₁₁, △RPM]
             current_state: 현재 상태 dict
@@ -113,6 +131,7 @@ class MultiZoneController:
 
         Returns:
             Shape (n_zones, n_features) - 각 Zone의 모델 입력
+            (제어값은 원본 스케일, 모델이 내부에서 StandardScaler 적용)
         """
         # 제어값 분해
         delta_gv = x[:N_GV]      # Shape (11,)
@@ -153,14 +172,36 @@ class MultiZoneController:
           + [RPM_변화(1)]
           = 총 11개
 
+        ⚠️ 정규화 기준 설명:
+        ---------------------
+        제어값(delta_gv, delta_rpm)은 원본 스케일로 포함됩니다.
+        이는 의도적 설계입니다:
+
+        1. 예측 모델이 StandardScaler로 학습됨
+           - 학습 데이터: (x - μ_train) / σ_train
+           - 범위: (-∞, +∞)
+
+        2. 따라서 zone_inputs의 제어값은 원본이어야 함
+           - 모델이 학습 데이터와 동일한 스케일로 정규화하기 위함
+           - model.predict_batch() 내부에서 자동으로 StandardScaler 적용
+
+        3. 별도 경로: 비용 함수는 ControlVariableNormalizer(MinMax) 사용
+           - 공정 제약 조건(gv_max=2.0, rpm_max=50) 기반
+           - 범위: [0, 1]
+           - 목적: 최적화 제약 조건 표현
+
+        두 정규화는 다른 목적이므로 서로 다름:
+           - 예측 모델: 모델이 학습한 방식 유지 필수
+           - 비용 함수: 공정 제약 기반 평가 필요
+
         Args:
             zone_id: 0~10
             current_clr_values: Shape (3,)
-            delta_gv: Shape (11,)
-            delta_rpm: Scalar
+            delta_gv: Shape (11,) - 원본 스케일 (정규화 없음)
+            delta_rpm: Scalar - 원본 스케일 (정규화 없음)
 
         Returns:
-            Shape (11,) - Zone 입력 벡터
+            Shape (11,) - Zone 입력 벡터 (제어값은 원본 스케일)
         """
         zone_prop = self.zone_properties[zone_id]
         center = N_ZONES / 2
@@ -187,14 +228,17 @@ class MultiZoneController:
         gv_idx_center = zone_id
         gv_idx_right = min(N_GV - 1, zone_id + 1)
 
+        # ★ 제어값은 원본 스케일로 유지
+        # (model.predict_batch()에서 자동으로 StandardScaler 적용)
         control_features_gv = np.array([
-            delta_gv[gv_idx_left],
-            delta_gv[gv_idx_center],
-            delta_gv[gv_idx_right],
+            delta_gv[gv_idx_left],       # 원본 스케일
+            delta_gv[gv_idx_center],     # 원본 스케일
+            delta_gv[gv_idx_right],      # 원본 스케일
         ])
 
-        # RPM 특성
-        control_features_rpm = np.array([delta_rpm])
+        # RPM 특성 (원본 스케일)
+        # ★ 비용 함수는 별도로 ControlVariableNormalizer(MinMax)를 사용함
+        control_features_rpm = np.array([delta_rpm])  # 원본 스케일
 
         # 전체 특성 결합
         zone_input = np.concatenate([

@@ -1,0 +1,367 @@
+"""
+밀도계 데이터 전처리 모듈 v1.3
+- 제어 구간과 비제어 구간 데이터 모두 추출
+- control_type 칼럼 추가
+"""
+
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+from typing import List, Optional
+import os
+import logging
+
+
+class DensitometerPreprocessor:
+    """밀도계 데이터 전처리 클래스"""
+
+    def __init__(self, config, logger: logging.Logger = None):
+        """
+        Parameters:
+        -----------
+        config : PreprocessConfig
+            전처리 설정 객체
+        logger : logging.Logger
+            로거 객체
+        """
+        self.config = config
+        self.logger = logger or logging.getLogger('coating_preprocessor.densitometer')
+        self.extracted_data = None
+
+    def run(
+        self,
+        control_regions_file: str,
+        no_control_regions_file: str,
+        raw_data_file: str
+    ) -> pd.DataFrame:
+        """
+        밀도계 데이터 추출 실행 (제어 구간 + 비제어 구간)
+
+        Parameters:
+        -----------
+        control_regions_file : str
+            제어 구간 정보 파일 (4th_control_regions.xlsx)
+        no_control_regions_file : str
+            비제어 구간 정보 파일 (5th_no_control_regions.xlsx)
+        raw_data_file : str
+            밀도계 raw data 파일
+
+        Returns:
+        --------
+        pd.DataFrame
+            추출된 밀도계 데이터 (제어 + 비제어)
+        """
+        self.logger.info("="*80)
+        self.logger.info("밀도계 데이터 추출 시작 (v1.3 - 제어/비제어 구간 포함)")
+        self.logger.info("="*80)
+        self.logger.info(f"제어 구간 파일: {control_regions_file}")
+        self.logger.info(f"비제어 구간 파일: {no_control_regions_file}")
+        self.logger.info(f"Raw data 파일: {raw_data_file}")
+        self.logger.info("="*80)
+
+        # 제어 구간 데이터 추출
+        self.logger.info("[제어 구간] 데이터 추출 중...")
+        control_data = self.extract_densitometer_data(
+            regions_file=control_regions_file,
+            raw_data_file=raw_data_file,
+            control_type='controlled'
+        )
+
+        # 비제어 구간 데이터 추출
+        self.logger.info("[비제어 구간] 데이터 추출 중...")
+        no_control_data = self.extract_densitometer_data(
+            regions_file=no_control_regions_file,
+            raw_data_file=raw_data_file,
+            control_type='no_control'
+        )
+
+        # 데이터 통합
+        all_data_list = []
+        if control_data is not None and not control_data.empty:
+            all_data_list.append(control_data)
+        if no_control_data is not None and not no_control_data.empty:
+            all_data_list.append(no_control_data)
+
+        if not all_data_list:
+            self.logger.warning("추출된 데이터가 없습니다.")
+            return pd.DataFrame()
+
+        self.extracted_data = pd.concat(all_data_list, ignore_index=True)
+
+        # 결과 저장
+        output_file = os.path.join(
+            self.config.OUTPUT_DIR,
+            self.config.OUTPUT_DENSITOMETER
+        )
+
+        self.logger.info(f"[통합 데이터] 저장 중...")
+        try:
+            if output_file.endswith('.csv'):
+                self.extracted_data.to_csv(output_file, index=False, encoding='utf-8-sig')
+            elif output_file.endswith(('.xlsx', '.xls')):
+                self.extracted_data.to_excel(output_file, index=False)
+            else:
+                output_file = output_file + '.xlsx'
+                self.extracted_data.to_excel(output_file, index=False)
+
+            self.logger.info(f"✓ '{output_file}' 파일로 저장 완료")
+
+            # 통계 정보 출력
+            self.logger.info("="*80)
+            self.logger.info("추출 완료 통계")
+            self.logger.info("="*80)
+            self.logger.info(f"총 Group 수: {self.extracted_data['group_id'].nunique()}")
+            self.logger.info(f"  - 제어 구간: {len(self.extracted_data[self.extracted_data['control_type'] == 'controlled']['group_id'].unique())}")
+            self.logger.info(f"  - 비제어 구간: {len(self.extracted_data[self.extracted_data['control_type'] == 'no_control']['group_id'].unique())}")
+            self.logger.info(f"총 데이터 행 수: {len(self.extracted_data)}")
+            self.logger.info(f"  - 제어 구간: {len(self.extracted_data[self.extracted_data['control_type'] == 'controlled'])}")
+            self.logger.info(f"  - 비제어 구간: {len(self.extracted_data[self.extracted_data['control_type'] == 'no_control'])}")
+            self.logger.info(f"총 칼럼 수: {len(self.extracted_data.columns)}")
+            self.logger.info("="*80)
+
+        except Exception as e:
+            self.logger.error(f"✗ 저장 오류: {e}", exc_info=True)
+            return None
+
+        return self.extracted_data
+
+    def extract_densitometer_data(
+        self,
+        regions_file: str,
+        raw_data_file: str,
+        control_type: str = 'controlled'
+    ) -> Optional[pd.DataFrame]:
+        """
+        구간 정보에 따라 밀도계 데이터 추출
+
+        Parameters:
+        -----------
+        regions_file : str
+            구간 정보 파일 (4th or 5th)
+        raw_data_file : str
+            밀도계 raw data 파일
+        control_type : str
+            'controlled' 또는 'no_control'
+
+        Returns:
+        --------
+        pd.DataFrame
+            추출된 밀도계 데이터
+        """
+        # 1. 구간 정보 파일 로드
+        self.logger.info(f"  [1단계] '{regions_file}' 파일 로드 중...")
+        try:
+            regions_df = pd.read_excel(regions_file)
+            self.logger.info(f"    ✓ {len(regions_df)} 개의 구간 정보 로드 완료")
+            self.logger.debug(f"    칼럼: {list(regions_df.columns)}")
+        except FileNotFoundError:
+            self.logger.warning(f"    ⚠ '{regions_file}' 파일을 찾을 수 없습니다.")
+            return None
+        except Exception as e:
+            self.logger.error(f"    ✗ 오류: {e}", exc_info=True)
+            return None
+
+        if regions_df.empty:
+            self.logger.warning(f"    ⚠ 구간 정보가 비어있습니다.")
+            return None
+
+        # 필수 칼럼 확인
+        required_cols = ['group_id', 'region_start', 'region_end']
+        missing_cols = [col for col in required_cols if col not in regions_df.columns]
+        if missing_cols:
+            self.logger.error(f"    ✗ 필수 칼럼이 없습니다: {missing_cols}")
+            return None
+
+        # 2. 밀도계 raw data 로드 (캐싱된 경우 재사용)
+        self.logger.info(f"  [2단계] 밀도계 raw data 로드 중...")
+        try:
+            # CSV 또는 Excel 파일 형식에 따라 로드
+            if raw_data_file.endswith('.csv'):
+                raw_df = pd.read_csv(raw_data_file)
+            elif raw_data_file.endswith(('.xlsx', '.xls')):
+                raw_df = pd.read_excel(raw_data_file)
+            else:
+                self.logger.error("    ✗ 지원하지 않는 파일 형식입니다.")
+                return None
+
+            self.logger.info(f"    ✓ {len(raw_df)} 행, {len(raw_df.columns)} 칼럼 로드 완료")
+            self.logger.debug(f"    첫 번째 칼럼 (time): {raw_df.columns[0]}")
+
+        except FileNotFoundError:
+            self.logger.error(f"    ✗ '{raw_data_file}' 파일을 찾을 수 없습니다.")
+            return None
+        except Exception as e:
+            self.logger.error(f"    ✗ 오류: {e}", exc_info=True)
+            return None
+
+        # 3. Value 칼럼 추출 (time 제외)
+        self.logger.info(f"  [3단계] Value 칼럼 식별 중...")
+        time_col = raw_df.columns[0]
+
+        # Value 칼럼 찾기
+        value_columns = []
+        for col in raw_df.columns[1:]:  # 첫 칼럼(time)은 제외
+            col_str = str(col)
+            # 'Value'로 시작하거나 숫자인 칼럼
+            if 'value' in col_str.lower() or col_str.isdigit():
+                value_columns.append(col)
+
+        # Value 칼럼을 못 찾았으면 time 제외한 모든 칼럼
+        if not value_columns:
+            value_columns = [col for col in raw_df.columns if col != time_col]
+
+        self.logger.info(f"    ✓ {len(value_columns)}개 Value 칼럼 발견")
+        self.logger.debug(f"    첫 칼럼: {value_columns[0]}, 마지막 칼럼: {value_columns[-1]}")
+
+        # 4. 중복 행 제거
+        self.logger.info(f"  [4단계] 중복 행 제거 중...")
+        raw_df = self.remove_duplicate_rows(raw_df, value_columns)
+
+        # 5. 시간 칼럼 파싱
+        self.logger.info(f"  [5단계] 시간 데이터 파싱 중...")
+
+        # raw data의 시간을 datetime으로 변환
+        raw_df['datetime'] = raw_df[time_col].apply(self._parse_time)
+        self.logger.info(f"    ✓ 시간 데이터 변환 완료")
+        self.logger.info(f"    시간 범위: {raw_df['datetime'].min()} ~ {raw_df['datetime'].max()}")
+
+        # 6. 각 구간에 대해 데이터 추출
+        self.logger.info(f"  [6단계] 구간별 데이터 추출 중...")
+
+        extracted_data_list = []
+
+        for idx, row in regions_df.iterrows():
+            group_id = row['group_id']
+            region_start = self._parse_time(str(row['region_start']))
+            region_end = self._parse_time(str(row['region_end']))
+
+            # 해당 시간 범위의 데이터 필터링
+            mask = (raw_df['datetime'] >= region_start) & (raw_df['datetime'] <= region_end)
+            group_data = raw_df[mask].copy()
+
+            if len(group_data) == 0:
+                self.logger.warning(f"    ⚠ Group {group_id}: 데이터 없음 (시간 범위: {region_start} ~ {region_end})")
+                continue
+
+            # before/after 구분
+            if control_type == 'controlled':
+                # 제어 구간: control_start 기준으로 before/after 구분
+                control_start = self._parse_time(str(row['control_start']))
+                group_data['before/after'] = group_data['datetime'].apply(
+                    lambda x: 'before' if x < control_start else 'after'
+                )
+            else:
+                # 비제어 구간: reference_point 기준으로 before/after 구분
+                reference_point = self._parse_time(str(row['reference_point']))
+                group_data['before/after'] = group_data['datetime'].apply(
+                    lambda x: 'before' if x < reference_point else 'after'
+                )
+
+            # control_type 추가
+            group_data['control_type'] = control_type
+
+            # group_id 추가
+            group_data['group_id'] = group_id
+
+            # datetime 칼럼 제거 (원본 time 칼럼 유지)
+            group_data = group_data.drop('datetime', axis=1)
+
+            # 칼럼 순서 재정렬: [group_id, control_type, before/after, time, ...밀도계 칼럼들...]
+            cols = ['group_id', 'control_type', 'before/after'] + [
+                col for col in group_data.columns
+                if col not in ['group_id', 'control_type', 'before/after']
+            ]
+            group_data = group_data[cols]
+
+            extracted_data_list.append(group_data)
+
+            before_count = (group_data['before/after'] == 'before').sum()
+            after_count = (group_data['before/after'] == 'after').sum()
+            self.logger.info(f"    ✓ Group {group_id}: {len(group_data)} 행 추출 (before: {before_count}, after: {after_count})")
+
+        # 7. 모든 데이터 합치기
+        if not extracted_data_list:
+            self.logger.warning("    ✗ 추출된 데이터가 없습니다.")
+            return None
+
+        self.logger.info(f"  [7단계] 데이터 통합 중...")
+        final_df = pd.concat(extracted_data_list, ignore_index=True)
+        self.logger.info(f"    ✓ 총 {len(final_df)} 행 데이터 통합 완료")
+
+        return final_df
+
+    def remove_duplicate_rows(
+        self,
+        df: pd.DataFrame,
+        value_columns: List[str]
+    ) -> pd.DataFrame:
+        """
+        연속되는 timestamp에서 모든 value 칼럼이 중복되는 행 제거
+        (첫 번째 행은 유지하고 이후 연속 중복 행들만 삭제)
+
+        Parameters:
+        -----------
+        df : pd.DataFrame
+            밀도계 raw data
+        value_columns : list
+            밀도계 value 칼럼 리스트
+
+        Returns:
+        --------
+        pd.DataFrame
+            중복 제거된 데이터프레임
+        """
+        self.logger.debug("    중복 행 제거 시작")
+        original_len = len(df)
+
+        # 첫 번째 행은 항상 유지
+        rows_to_keep = [0]
+
+        # 이전 행과 현재 행의 value 칼럼들을 비교
+        for idx in range(1, len(df)):
+            current_values = df.iloc[idx][value_columns].values
+            previous_values = df.iloc[idx-1][value_columns].values
+
+            # 모든 value가 동일한지 확인
+            # NaN 처리: NaN끼리는 동일하다고 판단
+            is_duplicate = True
+            for curr, prev in zip(current_values, previous_values):
+                # 둘 다 NaN이면 동일
+                if pd.isna(curr) and pd.isna(prev):
+                    continue
+                # 하나만 NaN이거나 값이 다르면 다른 행
+                if pd.isna(curr) != pd.isna(prev) or curr != prev:
+                    is_duplicate = False
+                    break
+
+            # 중복이 아니면 유지
+            if not is_duplicate:
+                rows_to_keep.append(idx)
+
+        # 중복 제거된 데이터프레임 생성
+        df_cleaned = df.iloc[rows_to_keep].reset_index(drop=True)
+
+        removed_count = original_len - len(df_cleaned)
+        self.logger.debug(f"    제거된 중복 행 수: {removed_count} ({removed_count/original_len*100:.2f}%)")
+        self.logger.debug(f"    최종 데이터 행 수: {len(df_cleaned)}")
+
+        return df_cleaned
+
+    def _parse_time(self, time_str, reference_date='2024-01-01'):
+        """
+        HH:MM:SS 형식의 시간 문자열을 datetime 객체로 변환
+
+        Parameters:
+        -----------
+        time_str : str
+            시간 문자열 (HH:MM:SS)
+        reference_date : str
+            기준 날짜 (시간만 있을 경우 날짜를 추가하기 위함)
+
+        Returns:
+        --------
+        datetime
+        """
+        if isinstance(time_str, str):
+            return pd.to_datetime(f"{reference_date} {time_str}")
+        return time_str
