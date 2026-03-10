@@ -5,7 +5,7 @@
 import pandas as pd
 import xlwings as xw
 from datetime import datetime
-from typing import List, Union
+from typing import List, Optional, Union
 import os
 import logging
 from logging.handlers import RotatingFileHandler
@@ -69,7 +69,7 @@ def setup_logger(
 
     return logger
 
-def save_to_excel(df: pd.DataFrame, output_path: str, sheet_name: str = 'Sheet1', format: str = 'excel', logger: logging.Logger = None):
+def save_to_excel(df: pd.DataFrame, output_path: str, sheet_name: str = 'Sheet1', format: str = 'excel', logger: Optional[logging.Logger] = None):
     """
     DataFrame을 다양한 형식으로 저장
 
@@ -127,7 +127,7 @@ def save_to_excel(df: pd.DataFrame, output_path: str, sheet_name: str = 'Sheet1'
         raise ValueError(f"지원하지 않는 형식: {format} (지원: 'excel', 'parquet', 'both')")
 
 
-def _save_to_excel_xlwings(df: pd.DataFrame, output_path: str, sheet_name: str = 'Sheet1', logger: logging.Logger = None):
+def _save_to_excel_xlwings(df: pd.DataFrame, output_path: str, sheet_name: str = 'Sheet1', logger: Optional[logging.Logger] = None):
     """xlwings를 사용하여 DataFrame을 엑셀로 저장 (내부 함수)"""
     if logger is None:
         logger = logging.getLogger('coating_preprocessor')
@@ -155,7 +155,7 @@ def _save_to_excel_xlwings(df: pd.DataFrame, output_path: str, sheet_name: str =
         app.quit()
 
 
-def normalize_for_parquet(df: pd.DataFrame, logger: logging.Logger = None) -> pd.DataFrame:
+def normalize_for_parquet(df: pd.DataFrame, logger: Optional[logging.Logger] = None) -> pd.DataFrame:
     """
     Parquet 저장을 위해 DataFrame을 정규화
 
@@ -232,7 +232,7 @@ def normalize_for_parquet(df: pd.DataFrame, logger: logging.Logger = None) -> pd
     return df_normalized
 
 
-def _save_to_parquet(df: pd.DataFrame, output_path: str, logger: logging.Logger = None):
+def _save_to_parquet(df: pd.DataFrame, output_path: str, logger: Optional[logging.Logger] = None):
     """
     DataFrame을 Parquet 형식으로 저장 (내부 함수)
 
@@ -272,8 +272,8 @@ def parse_time(time_str, reference_date='2024-01-01'):
 def _load_excel_with_xlwings(
     file_path: str,
     sheet_name: Union[str, int] = 0,
-    logger: logging.Logger = None
-) -> pd.DataFrame:
+    logger: Optional[logging.Logger] = None
+) -> Optional[pd.DataFrame]:
     """
     xlwings를 사용하여 엑셀 파일 로드 (회사 내부 이슈로 pandas.read_excel 사용 불가)
 
@@ -338,7 +338,7 @@ def _load_excel_with_xlwings(
 def load_file(
     file_path: str,
     sheet_name: Union[str, int] = 0,
-    logger: logging.Logger = None
+    logger: Optional[logging.Logger] = None
 ) -> pd.DataFrame:
     """
     파일 형식에 따라 자동으로 로드
@@ -416,7 +416,7 @@ def load_file(
         raise
 
 
-def load_excel_file(file_path: str, sheet_name: Union[str, int] = 0, logger: logging.Logger = None) -> pd.DataFrame:
+def load_excel_file(file_path: str, sheet_name: Union[str, int] = 0, logger: Optional[logging.Logger] = None) -> pd.DataFrame:
     """
     엑셀 파일 로드 (하위 호환성을 위한 래퍼 함수)
 
@@ -438,7 +438,7 @@ def load_excel_file(file_path: str, sheet_name: Union[str, int] = 0, logger: log
     """
     return load_file(file_path, sheet_name=sheet_name, logger=logger)
 
-def ensure_directory(directory: str, logger: logging.Logger = None):
+def ensure_directory(directory: str, logger: Optional[logging.Logger] = None):
     """디렉토리가 없으면 생성"""
     if logger is None:
         logger = logging.getLogger('coating_preprocessor')
@@ -446,7 +446,7 @@ def ensure_directory(directory: str, logger: logging.Logger = None):
     os.makedirs(directory, exist_ok=True)
     logger.debug(f"디렉토리 확인/생성: {directory}")
 
-def get_files_from_folder(folder_path: str, pattern: str = '*.xlsx', logger: logging.Logger = None) -> List[str]:
+def get_files_from_folder(folder_path: str, pattern: str = '*.xlsx', logger: Optional[logging.Logger] = None) -> List[str]:
     """폴더에서 패턴에 맞는 파일 목록 반환"""
     if logger is None:
         logger = logging.getLogger('coating_preprocessor')
