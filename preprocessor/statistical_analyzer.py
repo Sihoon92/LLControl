@@ -423,7 +423,11 @@ class StatisticalAnalyzer:
         boundary_low_mid = lcl + spec_range / 3.0
         boundary_mid_high = lcl + 2.0 * spec_range / 3.0
 
-        # 구간 분류 함수
+        # USL/LSL 범위 내 데이터만 사용 (out-of-spec 제외)
+        before_in_spec = before_data[(before_data >= lcl) & (before_data <= ucl)]
+        after_in_spec = after_data[(after_data >= lcl) & (after_data <= ucl)]
+
+        # 구간 분류 함수 (spec 내 데이터만 대상)
         def classify(data: np.ndarray) -> np.ndarray:
             """0=Low, 1=Mid, 2=High"""
             labels = np.zeros(len(data), dtype=int)
@@ -431,8 +435,8 @@ class StatisticalAnalyzer:
             labels[data >= boundary_mid_high] = 2
             return labels
 
-        before_labels = classify(before_data)
-        after_labels = classify(after_data)
+        before_labels = classify(before_in_spec)
+        after_labels = classify(after_in_spec)
 
         # 각 구간별 count
         before_counts = np.array([
@@ -446,10 +450,10 @@ class StatisticalAnalyzer:
             np.sum(after_labels == 2),
         ])
 
-        before_total = max(len(before_data), 1)
-        after_total = max(len(after_data), 1)
+        before_total = max(len(before_in_spec), 1)
+        after_total = max(len(after_in_spec), 1)
 
-        # 비율 계산
+        # 비율 계산 (분모 = spec 내 데이터 수, sum(ratios) = 1)
         before_ratios = before_counts / before_total
         after_ratios = after_counts / after_total
 

@@ -780,24 +780,28 @@ class ZoneAnalyzer:
             zone_mask = zones == zone_id
             zone_cols = [value_columns[i] for i in range(len(value_columns)) if zone_mask[i]]
 
-            # Before 데이터 추출
-            before_zone_data = before_data[zone_cols].values.flatten()
-            before_zone_data = before_zone_data[before_zone_data > 0]
+            # Before 데이터 추출 (0 이하 제거 후 USL/LSL 범위 내 데이터만 사용)
+            before_zone_raw = before_data[zone_cols].values.flatten()
+            before_zone_raw = before_zone_raw[before_zone_raw > 0]
+            before_zone_data = before_zone_raw[(before_zone_raw >= lcl) & (before_zone_raw <= ucl)]
 
-            # After 데이터 추출
-            after_zone_data = after_data[zone_cols].values.flatten()
-            after_zone_data = after_zone_data[after_zone_data > 0]
+            # After 데이터 추출 (0 이하 제거 후 USL/LSL 범위 내 데이터만 사용)
+            after_zone_raw = after_data[zone_cols].values.flatten()
+            after_zone_raw = after_zone_raw[after_zone_raw > 0]
+            after_zone_data = after_zone_raw[(after_zone_raw >= lcl) & (after_zone_raw <= ucl)]
 
             if len(before_zone_data) == 0:
                 continue
 
-            # 각 구간별 분포 계산 - Before
+            # 각 구간별 분포 계산 - Before (분모 = spec 내 데이터 수, sum(ratios) = 1)
             before_hist, _ = np.histogram(before_zone_data, bins=division_edges)
-            before_ratios = before_hist / len(before_zone_data)
+            before_in_spec = before_hist.sum()
+            before_ratios = before_hist / before_in_spec if before_in_spec > 0 else np.zeros_like(before_hist, dtype=float)
 
-            # 각 구간별 분포 계산 - After
+            # 각 구간별 분포 계산 - After (분모 = spec 내 데이터 수, sum(ratios) = 1)
             after_hist, _ = np.histogram(after_zone_data, bins=division_edges)
-            after_ratios = after_hist / len(after_zone_data) if len(after_zone_data) > 0 else np.zeros_like(before_hist)
+            after_in_spec = after_hist.sum()
+            after_ratios = after_hist / after_in_spec if after_in_spec > 0 else np.zeros_like(before_hist, dtype=float)
 
             zone_result = {
                 'group_id': group_id,
