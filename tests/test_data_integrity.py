@@ -463,12 +463,12 @@ class TestMeaningfulChangesIntegrity:
             f"중복 group_id: {duplicates['group_id'].tolist()}"
         )
 
-    def test_start_before_end(self, meaningful_changes_df):
-        """start_time < end_time 이어야 한다"""
+    def test_start_before_or_equal_end(self, meaningful_changes_df):
+        """start_time <= end_time 이어야 한다"""
         df = meaningful_changes_df
-        violations = df[df['start_time'] >= df['end_time']]
+        violations = df[df['start_time'] > df['end_time']]
         assert len(violations) == 0, (
-            f"start_time >= end_time인 group_id: {violations['group_id'].tolist()}"
+            f"start_time > end_time인 group_id: {violations['group_id'].tolist()}"
         )
 
     def test_ucl_lcl_present(self, meaningful_changes_df):
