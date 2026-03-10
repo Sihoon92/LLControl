@@ -37,7 +37,7 @@ class ZoneAnalyzer:
 
         # 통계 분석기 (외부에서 주입하거나 자동 생성)
         if statistical_analyzer is None:
-            from statistical_analyzer_v1_0 import StatisticalAnalyzer
+            from preprocessor.statistical_analyzer import StatisticalAnalyzer
             self.stat_analyzer = StatisticalAnalyzer(logger=self.logger)
         else:
             self.stat_analyzer = statistical_analyzer
