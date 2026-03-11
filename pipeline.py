@@ -212,18 +212,14 @@ class CoatingPreprocessPipeline:
         self.logger.info(f"로그 파일: {os.path.join(self.config.LOG_DIR, self.config.LOG_FILE)}")
         self.logger.info("="*80)
 
-    def run_multiple_files(
+    def merge_multiple_files(
         self,
         apc_files: List[str],
         densitometer_files: List[str],
-        llspec_files: Optional[List[str]] = None,
-        visualize: bool = True,
-        prepare_model_data: bool = True,
-        prepare_offline_rl_data: bool = True,
-        mode: str = 'training'
+        llspec_files: Optional[List[str]] = None
     ):
         """
-        여러 파일을 통합하여 전처리 실행
+        여러 파일을 하나의 임시 통합 파일로 병합
 
         Parameters:
         -----------
@@ -233,15 +229,9 @@ class CoatingPreprocessPipeline:
             밀도계 파일 경로 리스트
         llspec_files : List[str], optional
             LLspec 파일 경로 리스트
-        visualize : bool
-            시각화 여부
-        prepare_model_data : bool
-            모델 데이터 준비 여부
-        mode : str
-            데이터 모드 ('training' 또는 'test'), 기본값: 'training'
         """
         self.logger.info("="*80)
-        self.logger.info(f"전처리 파이프라인 시작 (다중 파일 모드 - {mode.upper()})")
+        self.logger.info("데이터 파일 통합 시작")
         self.logger.info("="*80)
         self.logger.info(f"APC 파일 수: {len(apc_files)}")
         self.logger.info(f"밀도계 파일 수: {len(densitometer_files)}")
@@ -276,7 +266,6 @@ class CoatingPreprocessPipeline:
         save_to_excel(merged_densitometer, temp_densitometer_file, 'Merged_Densitometer', self.logger)
 
         # LLspec 파일 통합 (있는 경우)
-        temp_llspec_file = None
         if llspec_files:
             merged_llspec = self.data_merger.merge_llspec_files(llspec_files)
             if merged_llspec is not None:
@@ -286,30 +275,20 @@ class CoatingPreprocessPipeline:
                 )
                 save_to_excel(merged_llspec, temp_llspec_file, 'Merged_LLspec', self.logger)
 
-        # 단일 파일 모드로 전처리 실행 (mode 전달)
-        self.run_single_file(
-            apc_file=temp_apc_file,
-            densitometer_file=temp_densitometer_file,
-            llspec_file=temp_llspec_file,
-            visualize=visualize,
-            prepare_model_data=prepare_model_data,
-            prepare_offline_rl_data=prepare_offline_rl_data,
-            mode=mode  # mode 전달
-        )
+        self.logger.info("="*80)
+        self.logger.info("데이터 파일 통합 완료")
+        self.logger.info(f"결과 저장 위치: {self.config.OUTPUT_DIR}")
+        self.logger.info("="*80)
 
     def run_from_folder(
         self,
         folder_path: str,
         apc_pattern: str = 'apc*.xlsx',
         densitometer_pattern: str = 'densitometer*.xlsx',
-        llspec_pattern: str = 'llspec*.xlsx',
-        visualize: bool = True,
-        prepare_model_data: bool = True,
-        prepare_offline_rl_data: bool = True,
-        mode: str = 'training'
+        llspec_pattern: str = 'llspec*.xlsx'
     ):
         """
-        폴더에서 패턴에 맞는 파일들을 자동으로 찾아서 전처리 실행
+        폴더에서 패턴에 맞는 파일들을 자동으로 찾아서 통합
 
         Parameters:
         -----------
@@ -321,15 +300,9 @@ class CoatingPreprocessPipeline:
             밀도계 파일 패턴
         llspec_pattern : str
             LLspec 파일 패턴
-        visualize : bool
-            시각화 여부
-        prepare_model_data : bool
-            모델 데이터 준비 여부
-        mode : str
-            데이터 모드 ('training' 또는 'test'), 기본값: 'training'
         """
         self.logger.info("="*80)
-        self.logger.info(f"전처리 파이프라인 시작 (폴더 모드 - {mode.upper()})")
+        self.logger.info("전처리 파이프라인 시작 (폴더 모드)")
         self.logger.info("="*80)
         self.logger.info(f"폴더 경로: {folder_path}")
         self.logger.info("="*80)
@@ -348,15 +321,11 @@ class CoatingPreprocessPipeline:
             self.logger.error("필수 파일이 없습니다.")
             return
 
-        # 다중 파일 모드로 실행 (mode 전달)
-        self.run_multiple_files(
+        # 파일 통합만 수행
+        self.merge_multiple_files(
             apc_files=apc_files,
             densitometer_files=densitometer_files,
-            llspec_files=llspec_files if llspec_files else None,
-            visualize=visualize,
-            prepare_model_data=prepare_model_data,
-            prepare_offline_rl_data=prepare_offline_rl_data,
-            mode=mode  # mode 전달
+            llspec_files=llspec_files if llspec_files else None
         )
 
     def get_results(self):

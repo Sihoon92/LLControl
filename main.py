@@ -23,11 +23,11 @@ def main():
   # Test 데이터 생성
   python main.py --mode test --apc data/raw/apc_test.xlsx --densitometer data/raw/densitometer_test.csv
 
-  # 다중 파일 모드 (Training)
-  python main.py --mode training --apc-multiple data/raw/apc_*.xlsx --densitometer-multiple data/raw/densitometer_*.csv
+  # 다중 파일 병합만 수행
+  python main.py --merge --apc-multiple data/raw/apc_*.xlsx --densitometer-multiple data/raw/densitometer_*.csv
 
-  # 폴더 모드 (Test)
-  python main.py --mode test --folder data/raw/
+  # 폴더 모드 (병합만 수행)
+  python main.py --merge --folder data/raw/
         """
     )
 
@@ -101,6 +101,13 @@ def main():
         help='LLspec 파일 패턴 (폴더 모드 사용 시)'
     )
 
+    # 병합 모드
+    parser.add_argument(
+        '--merge',
+        action='store_true',
+        help='다중 파일 병합만 수행 (전처리 파이프라인은 실행하지 않음)'
+    )
+
     # 기타 옵션
     parser.add_argument(
         '--no-visualize',
@@ -138,30 +145,25 @@ def main():
     # 실행 모드 선택
     # ===================================================================
 
-    if args.folder:
-        # 옵션 3: 폴더 자동 검색 모드
-        pipeline.run_from_folder(
-            folder_path=args.folder,
-            apc_pattern=args.apc_pattern,
-            densitometer_pattern=args.densitometer_pattern,
-            llspec_pattern=args.llspec_pattern,
-            visualize=visualize,
-            prepare_model_data=prepare_model_data,
-            prepare_offline_rl_data=prepare_offline_rl_data,
-            mode=args.mode
-        )
-
-    elif args.apc_multiple and args.densitometer_multiple:
-        # 옵션 2: 다중 파일 모드
-        pipeline.run_multiple_files(
-            apc_files=args.apc_multiple,
-            densitometer_files=args.densitometer_multiple,
-            llspec_files=args.llspec_multiple,
-            visualize=visualize,
-            prepare_model_data=prepare_model_data,
-            prepare_offline_rl_data=prepare_offline_rl_data,
-            mode=args.mode
-        )
+    if args.merge:
+        # 병합 모드: 다중 파일 병합만 수행
+        if args.folder:
+            pipeline.run_from_folder(
+                folder_path=args.folder,
+                apc_pattern=args.apc_pattern,
+                densitometer_pattern=args.densitometer_pattern,
+                llspec_pattern=args.llspec_pattern
+            )
+        elif args.apc_multiple and args.densitometer_multiple:
+            pipeline.merge_multiple_files(
+                apc_files=args.apc_multiple,
+                densitometer_files=args.densitometer_multiple,
+                llspec_files=args.llspec_multiple
+            )
+        else:
+            pipeline.logger.error("--merge 사용 시 --folder 또는 --apc-multiple/--densitometer-multiple을 지정해주세요.")
+            parser.print_help()
+            return
 
     elif args.apc and args.densitometer:
         # 옵션 1: 단일 파일 모드
