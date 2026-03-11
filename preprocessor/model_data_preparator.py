@@ -467,21 +467,8 @@ class ModelDataPreparator:
             return None
 
     def _save_data(self, df: pd.DataFrame, output_path: str):
-        """데이터 저장"""
-        try:
-            if output_path.endswith('.csv'):
-                df.to_csv(output_path, index=False, encoding='utf-8-sig')
-            elif output_path.endswith(('.xlsx', '.xls')):
-                df.to_excel(output_path, index=False)
-            else:
-                output_path = output_path + '.xlsx'
-                df.to_excel(output_path, index=False)
-
-            self.logger.info(f"  ✓ 데이터 저장: {output_path}")
-
-        except Exception as e:
-            self.logger.error(f"  ✗ 저장 오류: {e}")
-            raise
+        """데이터 저장 (엑셀 + 파케이 동시 저장)"""
+        utils.save_to_excel(df, output_path, format='both', logger=self.logger)
 
     def inverse_clr_transform(
         self,
