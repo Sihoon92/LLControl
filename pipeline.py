@@ -259,7 +259,7 @@ class CoatingPreprocessPipeline:
 
         # 통합된 APC 파일 임시 저장
         temp_apc_file = os.path.join(self.config.OUTPUT_DIR, 'temp_merged_apc.xlsx')
-        save_to_excel(merged_apc, temp_apc_file, 'Merged_APC', self.logger)
+        save_to_excel(merged_apc, temp_apc_file, 'Merged_APC', logger=self.logger)
 
         # 밀도계 파일 통합
         merged_densitometer = self.data_merger.merge_densitometer_files(densitometer_files)
@@ -272,7 +272,7 @@ class CoatingPreprocessPipeline:
             self.config.OUTPUT_DIR,
             'temp_merged_densitometer.xlsx'
         )
-        save_to_excel(merged_densitometer, temp_densitometer_file, 'Merged_Densitometer', self.logger)
+        save_to_excel(merged_densitometer, temp_densitometer_file, 'Merged_Densitometer', logger=self.logger)
 
         # LLspec 파일 통합 (있는 경우)
         if llspec_files:
@@ -282,7 +282,7 @@ class CoatingPreprocessPipeline:
                     self.config.OUTPUT_DIR,
                     'temp_merged_llspec.xlsx'
                 )
-                save_to_excel(merged_llspec, temp_llspec_file, 'Merged_LLspec', self.logger)
+                save_to_excel(merged_llspec, temp_llspec_file, 'Merged_LLspec', logger=self.logger)
 
         self.logger.info("="*80)
         self.logger.info("데이터 파일 통합 완료")
