@@ -886,24 +886,31 @@ class APCPreprocessor:
             spec_cols = []
 
             # 다양한 칼럼명 패턴 시도 (평탄화된 멀티레벨 헤더 대응)
-            # 예: 'L/L Spec_UCL', 'UCL', 'ucl' 등
-            col_keywords = {
-                'UCL': ['UCL'],
-                'TARGET': ['TARGET'],
-                'LCL': ['LCL']
-            }
+            # 예: 'L/L Spec_UCL', 'RPM_UCL' 등이 공존할 수 있음
+            # 'L/L' 포함 칼럼을 우선 매칭하고, 없으면 키워드만으로 fallback
+            ll_prefix = 'L/L'
+            spec_keywords = ['UCL', 'TARGET', 'LCL']
 
-            for spec_name, keywords in col_keywords.items():
-                found = False
+            for spec_name in spec_keywords:
+                # 1차: 'L/L'과 키워드 모두 포함하는 칼럼 우선 탐색
+                matched_col = None
                 for col in df.columns:
                     col_upper = str(col).upper()
-                    if any(kw in col_upper for kw in keywords):
-                        spec_cols.append(col)
-                        found = True
-                        self.logger.info(f"{spec_name} 칼럼 매칭: '{col}'")
+                    if ll_prefix in col_upper and spec_name in col_upper:
+                        matched_col = col
                         break
 
-                if not found:
+                # 2차: 'L/L' 없으면 키워드만으로 fallback (정확 일치 우선)
+                if matched_col is None:
+                    for col in df.columns:
+                        if str(col).upper() == spec_name:
+                            matched_col = col
+                            break
+
+                if matched_col is not None:
+                    spec_cols.append(matched_col)
+                    self.logger.info(f"{spec_name} 칼럼 매칭: '{matched_col}'")
+                else:
                     self.logger.warning(f"{spec_name} 칼럼을 찾을 수 없습니다.")
 
             if len(spec_cols) == 0:
