@@ -3,7 +3,7 @@
 """
 
 import pandas as pd
-from typing import List
+from typing import List, Optional
 import os
 import logging
 import utils
@@ -12,7 +12,7 @@ import utils
 class DataMerger:
     """데이터 파일 통합 클래스"""
 
-    def __init__(self, logger: logging.Logger = None):
+    def __init__(self, logger: Optional[logging.Logger] = None):
         """
         Parameters:
         -----------
@@ -21,7 +21,7 @@ class DataMerger:
         """
         self.logger = logger or logging.getLogger('coating_preprocessor.merger')
 
-    def merge_apc_files(self, file_list: List[str]) -> pd.DataFrame:
+    def merge_apc_files(self, file_list: List[str]) -> Optional[pd.DataFrame]:
         """
         여러 APC 파일을 하나로 통합
 
@@ -73,7 +73,7 @@ class DataMerger:
 
         return merged_df
 
-    def merge_densitometer_files(self, file_list: List[str]) -> pd.DataFrame:
+    def merge_densitometer_files(self, file_list: List[str]) -> Optional[pd.DataFrame]:
         """
         여러 밀도계 파일을 하나로 통합
 
@@ -125,7 +125,7 @@ class DataMerger:
 
         return merged_df
 
-    def merge_llspec_files(self, file_list: List[str]) -> pd.DataFrame:
+    def merge_llspec_files(self, file_list: List[str]) -> Optional[pd.DataFrame]:
         """
         여러 LLspec 파일을 하나로 통합
 

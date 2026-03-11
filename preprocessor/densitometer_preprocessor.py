@@ -16,7 +16,7 @@ import utils
 class DensitometerPreprocessor:
     """밀도계 데이터 전처리 클래스"""
 
-    def __init__(self, config, logger: logging.Logger = None):
+    def __init__(self, config, logger: Optional[logging.Logger] = None):
         """
         Parameters:
         -----------
@@ -27,14 +27,14 @@ class DensitometerPreprocessor:
         """
         self.config = config
         self.logger = logger or logging.getLogger('coating_preprocessor.densitometer')
-        self.extracted_data = None
+        self.extracted_data: Optional[pd.DataFrame] = None
 
     def run(
         self,
         control_regions_file: str,
         no_control_regions_file: str,
         raw_data_file: str
-    ) -> pd.DataFrame:
+    ) -> Optional[pd.DataFrame]:
         """
         밀도계 데이터 추출 실행 (제어 구간 + 비제어 구간)
 

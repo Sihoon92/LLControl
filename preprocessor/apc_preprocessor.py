@@ -17,7 +17,7 @@ import utils
 class APCPreprocessor:
     """APC 데이터 전처리 클래스"""
 
-    def __init__(self, config, logger: logging.Logger = None):
+    def __init__(self, config, logger: Optional[logging.Logger] = None):
         """
         Parameters:
         -----------
@@ -35,7 +35,7 @@ class APCPreprocessor:
         self.control_regions_df = None
         self.no_control_regions_df = None
 
-    def run(self, input_file: str, llspec_file: Optional[str] = None) -> pd.DataFrame:
+    def run(self, input_file: str, llspec_file: Optional[str] = None) -> Optional[pd.DataFrame]:
         """
         전체 APC 전처리 프로세스 실행
 

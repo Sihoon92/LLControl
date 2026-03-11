@@ -23,7 +23,7 @@ class CoatingPreprocessPipeline:
     전체 전처리 과정을 통합 관리하는 메인 클래스
     """
 
-    def __init__(self, config: PreprocessConfig = None, logger: logging.Logger = None):
+    def __init__(self, config: Optional[PreprocessConfig] = None, logger: Optional[logging.Logger] = None):
         """
         Parameters:
         -----------

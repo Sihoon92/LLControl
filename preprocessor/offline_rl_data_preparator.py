@@ -22,7 +22,7 @@ class OfflineRLDataPreparator:
     CLR_COMPONENTS = ['Low', 'Mid', 'High']
     EPSILON = 1e-4
 
-    def __init__(self, config, logger: logging.Logger = None):
+    def __init__(self, config, logger: Optional[logging.Logger] = None):
         self.config = config
         self.logger = logger or logging.getLogger('coating_preprocessor.offline_rl')
 
@@ -39,8 +39,8 @@ class OfflineRLDataPreparator:
         self,
         densitometer_data: pd.DataFrame,
         meaningful_changes: pd.DataFrame,
-        zone_analysis_results: pd.DataFrame,
-        output_file: str = None,
+        zone_analysis_results: Optional[pd.DataFrame] = None,
+        output_file: Optional[str] = None,
         mode: str = 'training'
     ) -> Optional[pd.DataFrame]:
         """
@@ -245,7 +245,7 @@ class OfflineRLDataPreparator:
             prefix='S_tplus',
             reverse_time_index=False  # t+1, t+2, ..., t+5
         )
-        if next_state_features is None:
+        if next_state_features is None or next_state_ratios is None:
             self.logger.debug(f"  Group {group_id}: Next State 특성 생성 실패")
             return None
 

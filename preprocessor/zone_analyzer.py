@@ -21,7 +21,7 @@ plt.rcParams['axes.unicode_minus'] = False
 class ZoneAnalyzer:
     """Zone별 분석 클래스 (통계 분석 포함)"""
 
-    def __init__(self, config, statistical_analyzer=None, logger: logging.Logger = None):
+    def __init__(self, config, statistical_analyzer=None, logger: Optional[logging.Logger] = None):
         """
         Parameters:
         -----------

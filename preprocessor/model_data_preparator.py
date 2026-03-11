@@ -8,7 +8,7 @@ import utils
 class ModelDataPreparator:
     """모델 학습용 데이터 준비 클래스"""
 
-    def __init__(self, config, logger: logging.Logger = None):
+    def __init__(self, config, logger: Optional[logging.Logger] = None):
         """
         Parameters:
         -----------
@@ -32,9 +32,9 @@ class ModelDataPreparator:
         self,
         zone_analysis_file: str,
         meaningful_changes_file: str,
-        output_file: str = None,
+        output_file: Optional[str] = None,
         mode: str = 'training'
-    ) -> pd.DataFrame:
+    ) -> Optional[pd.DataFrame]:
         """
         모델 학습용 데이터 준비 실행
 
