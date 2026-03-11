@@ -46,3 +46,10 @@ class PreprocessConfig:
     PUMP_RPM_COL = 'PUMP RPM'
     TIME_COL = 'TIME'
     SIDE_COL = 'SIDE'
+
+    # Offline RL 설정
+    OFFLINE_RL_N_DIVISIONS = 3              # Low/Mid/High 3구간
+    OFFLINE_RL_TIMESTEPS = 5                # 시계열 타임스텝 수 (분)
+    OFFLINE_RL_DEAD_TIME_MINUTES = 0        # 지연 시간 (기본: 0분)
+    OFFLINE_RL_REWARD_ALPHA = 1.0           # 보상 함수의 불량 패널티 가중치
+    OUTPUT_OFFLINE_RL_DATA = 'offline_rl_training_data.parquet'  # 출력 파일명

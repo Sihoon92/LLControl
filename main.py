@@ -112,6 +112,11 @@ def main():
         action='store_true',
         help='모델 데이터 생성 비활성화'
     )
+    parser.add_argument(
+        '--no-offline-rl-data',
+        action='store_true',
+        help='Offline RL MDP 데이터 생성 비활성화'
+    )
 
     args = parser.parse_args()
 
@@ -127,6 +132,7 @@ def main():
     # 실행 모드 결정
     visualize = not args.no_visualize
     prepare_model_data = not args.no_model_data
+    prepare_offline_rl_data = not args.no_offline_rl_data
 
     # ===================================================================
     # 실행 모드 선택
@@ -141,6 +147,7 @@ def main():
             llspec_pattern=args.llspec_pattern,
             visualize=visualize,
             prepare_model_data=prepare_model_data,
+            prepare_offline_rl_data=prepare_offline_rl_data,
             mode=args.mode
         )
 
@@ -152,6 +159,7 @@ def main():
             llspec_files=args.llspec_multiple,
             visualize=visualize,
             prepare_model_data=prepare_model_data,
+            prepare_offline_rl_data=prepare_offline_rl_data,
             mode=args.mode
         )
 
@@ -163,6 +171,7 @@ def main():
             llspec_file=args.llspec,
             visualize=visualize,
             prepare_model_data=prepare_model_data,
+            prepare_offline_rl_data=prepare_offline_rl_data,
             mode=args.mode
         )
 

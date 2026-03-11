@@ -15,6 +15,7 @@ from preprocessor.densitometer_preprocessor import DensitometerPreprocessor
 from preprocessor.zone_analyzer import ZoneAnalyzer
 from preprocessor.data_merger import DataMerger
 from preprocessor.model_data_preparator import ModelDataPreparator
+from preprocessor.offline_rl_data_preparator import OfflineRLDataPreparator
 
 class CoatingPreprocessPipeline:
     """
@@ -52,6 +53,7 @@ class CoatingPreprocessPipeline:
         self.zone_analyzer = ZoneAnalyzer(self.config, logger=self.logger)  # 파라미터 명시적 지정
         self.data_merger = DataMerger(self.logger)
         self.model_data_preparator = ModelDataPreparator(self.config, self.logger)
+        self.offline_rl_preparator = OfflineRLDataPreparator(self.config, self.logger)
 
         # 결과 저장용
         self.results = {}
@@ -67,6 +69,7 @@ class CoatingPreprocessPipeline:
         llspec_file: Optional[str] = None,
         visualize: bool = True,
         prepare_model_data: bool = True,
+        prepare_offline_rl_data: bool = True,
         mode: str = 'training'
     ):
         """
@@ -174,6 +177,23 @@ class CoatingPreprocessPipeline:
             else:
                 self.logger.warning(f"  ⚠ 모델 {mode.upper()} 데이터 준비 실패")
 
+        # Step 5: Offline RL용 MDP 데이터 준비 (옵션)
+        if prepare_offline_rl_data:
+            self.logger.info(f"[Step 5] Offline RL {mode.upper()} 데이터 준비")
+
+            offline_rl_data = self.offline_rl_preparator.run(
+                densitometer_data=extracted_data,
+                meaningful_changes=meaningful_changes,
+                zone_analysis_results=zone_results,
+                mode=mode
+            )
+
+            if offline_rl_data is not None and not offline_rl_data.empty:
+                self.results[f'offline_rl_{mode}_data'] = offline_rl_data
+                self.logger.info(f"  ✓ Offline RL {mode.upper()} 데이터 준비 완료: {len(offline_rl_data)} MDP 튜플")
+            else:
+                self.logger.warning(f"  ⚠ Offline RL {mode.upper()} 데이터 준비 실패")
+
         # 최종 요약
         self.logger.info("="*80)
         self.logger.info("전처리 파이프라인 완료")
@@ -184,6 +204,9 @@ class CoatingPreprocessPipeline:
 
         if prepare_model_data and f'model_{mode}_data' in self.results:
             self.logger.info(f"모델 {mode.upper()} 데이터: {len(self.results[f'model_{mode}_data'])} 샘플")
+
+        if prepare_offline_rl_data and f'offline_rl_{mode}_data' in self.results:
+            self.logger.info(f"Offline RL {mode.upper()} 데이터: {len(self.results[f'offline_rl_{mode}_data'])} MDP 튜플")
 
         self.logger.info(f"결과 저장 위치: {self.config.OUTPUT_DIR}")
         self.logger.info(f"로그 파일: {os.path.join(self.config.LOG_DIR, self.config.LOG_FILE)}")
@@ -196,6 +219,7 @@ class CoatingPreprocessPipeline:
         llspec_files: Optional[List[str]] = None,
         visualize: bool = True,
         prepare_model_data: bool = True,
+        prepare_offline_rl_data: bool = True,
         mode: str = 'training'
     ):
         """
@@ -269,6 +293,7 @@ class CoatingPreprocessPipeline:
             llspec_file=temp_llspec_file,
             visualize=visualize,
             prepare_model_data=prepare_model_data,
+            prepare_offline_rl_data=prepare_offline_rl_data,
             mode=mode  # mode 전달
         )
 
@@ -280,6 +305,7 @@ class CoatingPreprocessPipeline:
         llspec_pattern: str = 'llspec*.xlsx',
         visualize: bool = True,
         prepare_model_data: bool = True,
+        prepare_offline_rl_data: bool = True,
         mode: str = 'training'
     ):
         """
@@ -329,6 +355,7 @@ class CoatingPreprocessPipeline:
             llspec_files=llspec_files if llspec_files else None,
             visualize=visualize,
             prepare_model_data=prepare_model_data,
+            prepare_offline_rl_data=prepare_offline_rl_data,
             mode=mode  # mode 전달
         )
 
