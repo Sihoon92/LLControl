@@ -1,8 +1,10 @@
 """
-픽셀 분포 시계열 시각화 스크립트
+픽셀 분포 시각화 스크립트
 
-제어 구간(4th_control_regions) 기반으로 밀도계 raw data에서
-USL/LSL 사이 3구간(High/Mid/Low) 픽셀 분포의 시간별 변화를 시각화.
+1) 시계열 시각화: 제어 구간(4th_control_regions) 기반으로 밀도계 raw data에서
+   USL/LSL 사이 3구간(High/Mid/Low) 픽셀 분포의 시간별 변화를 시각화.
+2) Zone 히트맵: zone_analysis_results.xlsx 기반으로 존별 제어 전/후
+   Division 분포 변화를 히트맵으로 시각화.
 
 사용법:
   python visualize_pixel_distribution.py \
@@ -12,8 +14,7 @@ USL/LSL 사이 3구간(High/Mid/Low) 픽셀 분포의 시간별 변화를 시각
 
   python visualize_pixel_distribution.py \
     --densitometer data/raw/densitometer_data.csv \
-    --control_regions outputs/4th_control_regions.xlsx \
-    --meaningful_changes outputs/3rd_meaningful_changes.xlsx \
+    --zone_results outputs/zone_analysis_results.xlsx \
     --n_samples 3
 """
 
@@ -27,6 +28,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import numpy as np
 import pandas as pd
+import seaborn as sns
 
 # 프로젝트 내 유틸리티 재사용
 import utils
@@ -177,9 +179,89 @@ def plot_group(ax, dist_df, group_id, usl, lsl, control_start=None, control_end=
     ax.tick_params(axis='x', rotation=30)
 
 
+def extract_heatmap_matrices(group_df, n_divisions):
+    """
+    특정 group_id의 zone_analysis_results에서 before/after/change 행렬을 추출.
+
+    Returns:
+        tuple: (before_matrix, after_matrix, change_matrix, zone_ids, div_labels)
+    """
+    group_df = group_df.sort_values('zone_id')
+    zone_ids = group_df['zone_id'].values
+
+    before_matrix = np.zeros((len(zone_ids), n_divisions))
+    after_matrix = np.zeros((len(zone_ids), n_divisions))
+    change_matrix = np.zeros((len(zone_ids), n_divisions))
+    div_labels = []
+
+    for j in range(n_divisions):
+        div_idx = j + 1
+        before_matrix[:, j] = group_df[f'div_{div_idx}_before_ratio'].values
+        after_matrix[:, j] = group_df[f'div_{div_idx}_after_ratio'].values
+        change_matrix[:, j] = group_df[f'div_{div_idx}_ratio_change'].values
+
+        range_str = group_df[f'div_{div_idx}_range'].iloc[0]
+        div_labels.append(f'Div{div_idx}\n{range_str}')
+
+    return before_matrix, after_matrix, change_matrix, zone_ids, div_labels
+
+
+def plot_zone_heatmaps(before_matrix, after_matrix, change_matrix,
+                       zone_ids, div_labels, group_id, ucl, lcl, output_dir):
+    """하나의 group_id에 대해 Before/After/Change 3개 히트맵을 생성하여 저장."""
+    fig, axes = plt.subplots(1, 3, figsize=(22, 8))
+
+    vmax_ba = max(before_matrix.max(), after_matrix.max())
+
+    abs_max_change = max(abs(change_matrix.min()), abs(change_matrix.max()))
+    if abs_max_change == 0:
+        abs_max_change = 0.01
+
+    sns.heatmap(
+        before_matrix, annot=True, fmt='.2f', cmap='YlOrRd',
+        vmin=0, vmax=vmax_ba, xticklabels=div_labels, yticklabels=zone_ids,
+        linewidths=0.5, cbar_kws={'label': 'Ratio'}, ax=axes[0]
+    )
+    axes[0].set_title('Before (제어 전)', fontsize=13, fontweight='bold')
+    axes[0].set_ylabel('Zone ID', fontsize=11)
+    axes[0].set_xlabel('Division', fontsize=11)
+
+    sns.heatmap(
+        after_matrix, annot=True, fmt='.2f', cmap='YlOrRd',
+        vmin=0, vmax=vmax_ba, xticklabels=div_labels, yticklabels=zone_ids,
+        linewidths=0.5, cbar_kws={'label': 'Ratio'}, ax=axes[1]
+    )
+    axes[1].set_title('After (제어 후)', fontsize=13, fontweight='bold')
+    axes[1].set_ylabel('Zone ID', fontsize=11)
+    axes[1].set_xlabel('Division', fontsize=11)
+
+    sns.heatmap(
+        change_matrix, annot=True, fmt='.2f', cmap='RdBu_r',
+        vmin=-abs_max_change, vmax=abs_max_change, center=0,
+        xticklabels=div_labels, yticklabels=zone_ids,
+        linewidths=0.5, cbar_kws={'label': 'Ratio Change'}, ax=axes[2]
+    )
+    axes[2].set_title('Change (After - Before)', fontsize=13, fontweight='bold')
+    axes[2].set_ylabel('Zone ID', fontsize=11)
+    axes[2].set_xlabel('Division', fontsize=11)
+
+    fig.suptitle(
+        f'Group {group_id}  |  UCL={ucl:.4f}  LCL={lcl:.4f}\n'
+        f'Zone별 Division 분포 변화 히트맵',
+        fontsize=15, fontweight='bold', y=1.02
+    )
+    plt.tight_layout()
+
+    output_path = os.path.join(output_dir, f'group_{group_id}_zone_heatmap.png')
+    fig.savefig(output_path, dpi=200, bbox_inches='tight')
+    plt.close(fig)
+
+    return output_path
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description='픽셀 분포 시계열 시각화 (USL/LSL 3구간: High/Mid/Low)'
+        description='픽셀 분포 시각화 (시계열 + Zone 히트맵)'
     )
     parser.add_argument('--densitometer', type=str, required=True,
                         help='밀도계 raw data 파일 경로')
@@ -187,6 +269,8 @@ def main():
                         help='4th_control_regions 파일 경로 (기본: outputs/4th_control_regions.xlsx)')
     parser.add_argument('--meaningful_changes', type=str, default=None,
                         help='3rd_meaningful_changes 파일 경로 (기본: outputs/3rd_meaningful_changes.xlsx)')
+    parser.add_argument('--zone_results', type=str, default=None,
+                        help='zone_analysis_results.xlsx 경로 (기본: outputs/zone_analysis_results.xlsx)')
     parser.add_argument('--n_samples', type=int, default=5,
                         help='랜덤 샘플링할 group_id 수 (기본: 5)')
     parser.add_argument('--seed', type=int, default=None,
@@ -203,6 +287,9 @@ def main():
     )
     meaningful_changes_file = args.meaningful_changes or os.path.join(
         config.OUTPUT_DIR, config.OUTPUT_3RD
+    )
+    zone_results_file = args.zone_results or os.path.join(
+        config.OUTPUT_DIR, config.OUTPUT_ZONE_ANALYSIS
     )
     output_dir = args.output_dir or os.path.join(config.PLOT_DIR, 'pixel_distribution')
     os.makedirs(output_dir, exist_ok=True)
@@ -306,8 +393,62 @@ def main():
     fig.savefig(output_path, dpi=200, bbox_inches='tight')
     plt.close(fig)
 
+    logger.info(f"[6] 시계열 시각화 완료: {output_path}")
+
+    # ================================================================
+    # 4. Zone 히트맵 시각화
+    # ================================================================
     logger.info("=" * 60)
-    logger.info(f"시각화 완료! 저장 위치: {output_path}")
+    logger.info("Zone 히트맵 시각화 시작")
+    logger.info("=" * 60)
+
+    if not os.path.exists(zone_results_file):
+        logger.warning(f"Zone 분석 결과 파일 없음: {zone_results_file} (히트맵 생략)")
+    else:
+        zone_df = utils.load_file(zone_results_file, logger=logger)
+        logger.info(f"[7] Zone 분석 결과 로드: {len(zone_df)} 행")
+
+        n_divisions = int(zone_df['n_divisions'].iloc[0])
+        available_zone_groups = set(zone_df['group_id'].unique())
+
+        # 시계열에서 사용한 sampled_ids 중 zone_analysis에도 존재하는 것 사용
+        heatmap_ids = sorted(set(sampled_ids) & available_zone_groups)
+
+        if not heatmap_ids:
+            logger.warning("시계열 샘플 group_id와 zone_analysis의 group_id가 겹치지 않습니다.")
+        else:
+            logger.info(f"    히트맵 대상 group_id ({len(heatmap_ids)}개): {heatmap_ids}")
+
+            heatmap_dir = os.path.join(output_dir, 'zone_heatmap')
+            os.makedirs(heatmap_dir, exist_ok=True)
+
+            for i, group_id in enumerate(heatmap_ids):
+                logger.info(f"[8-{i+1}] Group {group_id} 히트맵 생성 중...")
+
+                group_zone_df = zone_df[zone_df['group_id'] == group_id]
+                ucl = float(group_zone_df['ucl'].iloc[0])
+                lcl = float(group_zone_df['lcl'].iloc[0])
+
+                before_mat, after_mat, change_mat, zone_ids, div_labels = \
+                    extract_heatmap_matrices(group_zone_df, n_divisions)
+
+                heatmap_path = plot_zone_heatmaps(
+                    before_mat, after_mat, change_mat,
+                    zone_ids, div_labels,
+                    group_id, ucl, lcl, heatmap_dir
+                )
+                logger.info(f"    -> 저장: {heatmap_path}")
+
+                max_change_idx = np.unravel_index(
+                    np.argmax(np.abs(change_mat)), change_mat.shape
+                )
+                max_zone = zone_ids[max_change_idx[0]]
+                max_div = max_change_idx[1] + 1
+                max_val = change_mat[max_change_idx]
+                logger.info(f"    -> 최대 변화: Zone {max_zone}, Div {max_div} (change={max_val:+.4f})")
+
+    logger.info("=" * 60)
+    logger.info(f"전체 시각화 완료! 저장 위치: {output_dir}")
     logger.info("=" * 60)
 
 
