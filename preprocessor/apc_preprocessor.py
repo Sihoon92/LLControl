@@ -242,7 +242,7 @@ class APCPreprocessor:
         self,
         file_path: str,
         sheet_name: Optional[str] = None
-    ) -> Tuple[Optional[pd.DataFrame], pd.DataFrame]:
+    ) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
         1차 전처리: GV_GAP 및 PUMP RPM 값 변경 감지
 
