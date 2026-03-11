@@ -8,7 +8,7 @@ import os
 import logging
 
 from config import PreprocessConfig
-from utils import save_to_excel, ensure_directory, setup_logger, get_files_from_folder
+from utils import save_to_excel, ensure_directory, setup_logger
 # 아래 모듈들은 사용자가 구현해야 함 (문맥상 import 경로 유지)
 from preprocessor.apc_preprocessor import APCPreprocessor
 from preprocessor.densitometer_preprocessor import DensitometerPreprocessor
@@ -279,54 +279,6 @@ class CoatingPreprocessPipeline:
         self.logger.info("데이터 파일 통합 완료")
         self.logger.info(f"결과 저장 위치: {self.config.OUTPUT_DIR}")
         self.logger.info("="*80)
-
-    def run_from_folder(
-        self,
-        folder_path: str,
-        apc_pattern: str = 'apc*.xlsx',
-        densitometer_pattern: str = 'densitometer*.xlsx',
-        llspec_pattern: str = 'llspec*.xlsx'
-    ):
-        """
-        폴더에서 패턴에 맞는 파일들을 자동으로 찾아서 통합
-
-        Parameters:
-        -----------
-        folder_path : str
-            데이터 폴더 경로
-        apc_pattern : str
-            APC 파일 패턴
-        densitometer_pattern : str
-            밀도계 파일 패턴
-        llspec_pattern : str
-            LLspec 파일 패턴
-        """
-        self.logger.info("="*80)
-        self.logger.info("전처리 파이프라인 시작 (폴더 모드)")
-        self.logger.info("="*80)
-        self.logger.info(f"폴더 경로: {folder_path}")
-        self.logger.info("="*80)
-
-        # 파일 검색
-        apc_files = get_files_from_folder(folder_path, apc_pattern, self.logger)
-        densitometer_files = get_files_from_folder(folder_path, densitometer_pattern, self.logger)
-        llspec_files = get_files_from_folder(folder_path, llspec_pattern, self.logger)
-
-        self.logger.info(f"발견된 파일:")
-        self.logger.info(f"  APC: {len(apc_files)}개")
-        self.logger.info(f"  밀도계: {len(densitometer_files)}개")
-        self.logger.info(f"  LLspec: {len(llspec_files)}개")
-
-        if not apc_files or not densitometer_files:
-            self.logger.error("필수 파일이 없습니다.")
-            return
-
-        # 파일 통합만 수행
-        self.merge_multiple_files(
-            apc_files=apc_files,
-            densitometer_files=densitometer_files,
-            llspec_files=llspec_files if llspec_files else None
-        )
 
     def get_results(self):
         """전처리 결과 반환"""
