@@ -43,11 +43,31 @@ logging.basicConfig(
 logger = logging.getLogger('pixel_distribution')
 
 
-def parse_time(time_str, reference_date='2024-01-01'):
-    """HH:MM:SS 형식의 시간 문자열을 datetime 객체로 변환"""
-    if isinstance(time_str, str):
-        return pd.to_datetime(f"{reference_date} {time_str}")
-    return time_str
+def parse_time(time_val, reference_date='2024-01-01'):
+    """
+    다양한 형태의 시간 값을 timezone-naive pandas Timestamp로 통일 변환.
+
+    지원 형태:
+    - str "HH:MM:SS" → reference_date + HH:MM:SS
+    - str "YYYY-MM-DD HH:MM:SS" → 그대로 파싱
+    - datetime / pd.Timestamp → 그대로 반환 (tz 제거)
+    """
+    if pd.isna(time_val):
+        return pd.NaT
+
+    # 이미 Timestamp/datetime 계열이면 tz만 제거하고 반환
+    if isinstance(time_val, (pd.Timestamp,)):
+        return time_val.tz_localize(None) if time_val.tzinfo else time_val
+    if hasattr(time_val, 'year'):  # datetime.datetime 등
+        return pd.Timestamp(time_val).tz_localize(None)
+
+    # 문자열 처리
+    time_str = str(time_val).strip()
+    # "HH:MM:SS" 형식 (날짜 없음) → reference_date 붙이기
+    if len(time_str) <= 8 and ':' in time_str and '-' not in time_str:
+        return pd.Timestamp(f"{reference_date} {time_str}")
+    # 그 외 ("YYYY-MM-DD HH:MM:SS" 등) → 직접 파싱
+    return pd.Timestamp(time_str)
 
 
 def identify_value_columns(df):
@@ -100,8 +120,8 @@ def process_group(raw_df, time_col, value_columns, group_info, usl, lsl):
     Returns:
         pd.DataFrame: columns = ['datetime', 'low', 'mid', 'high', 'out_of_range']
     """
-    start_time = parse_time(str(group_info['start_time']))
-    end_time = parse_time(str(group_info['end_time']))
+    start_time = parse_time(group_info['start_time'])
+    end_time = parse_time(group_info['end_time'])
 
     mask = (raw_df['datetime'] >= start_time) & (raw_df['datetime'] <= end_time)
     group_data = raw_df[mask].copy()
@@ -137,8 +157,8 @@ def plot_group(ax, dist_df, group_id, usl, lsl, control_start=None, control_end=
 
     # 제어 구간 표시
     if control_start is not None and control_end is not None:
-        cs = parse_time(str(control_start))
-        ce = parse_time(str(control_end))
+        cs = parse_time(control_start)
+        ce = parse_time(control_end)
         ax.axvspan(cs, ce, alpha=0.15, color='#f39c12', label='Control period')
         ax.axvline(cs, color='#f39c12', linestyle='--', linewidth=1, alpha=0.6)
         ax.axvline(ce, color='#f39c12', linestyle='--', linewidth=1, alpha=0.6)
@@ -211,8 +231,8 @@ def main():
     time_col, value_columns = identify_value_columns(raw_df)
     logger.info(f"    -> {len(raw_df)} 행, {len(value_columns)} Value 칼럼")
 
-    # 시간 파싱
-    raw_df['datetime'] = raw_df[time_col].apply(parse_time)
+    # 시간 파싱 (모든 값을 timezone-naive Timestamp로 통일)
+    raw_df['datetime'] = pd.to_datetime(raw_df[time_col].apply(parse_time))
     logger.info(f"    시간 범위: {raw_df['datetime'].min()} ~ {raw_df['datetime'].max()}")
 
     # ================================================================
