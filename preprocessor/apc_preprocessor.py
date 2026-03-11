@@ -146,7 +146,7 @@ class APCPreprocessor:
         self.logger.info("[1차 전처리] 변경점 감지")
         self.changes_df, self.original_df = self.detect_parameter_changes(input_file)
 
-        if self.changes_df is None:
+        if self.changes_df is None or self.original_df is None:
             self.logger.warning("변경점이 없어 종료합니다.")
             return None
 
