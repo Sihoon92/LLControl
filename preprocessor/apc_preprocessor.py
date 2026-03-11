@@ -885,19 +885,22 @@ class APCPreprocessor:
             # UCL, TARGET, LCL 칼럼 찾기
             spec_cols = []
 
-            # 다양한 칼럼명 패턴 시도
-            col_patterns = {
-                'UCL': ['UCL', 'ucl', 'Upper Control Limit'],
-                'TARGET': ['TARGET', 'target', 'Target'],
-                'LCL': ['LCL', 'lcl', 'Lower Control Limit']
+            # 다양한 칼럼명 패턴 시도 (평탄화된 멀티레벨 헤더 대응)
+            # 예: 'L/L Spec_UCL', 'UCL', 'ucl' 등
+            col_keywords = {
+                'UCL': ['UCL'],
+                'TARGET': ['TARGET'],
+                'LCL': ['LCL']
             }
 
-            for spec_name, patterns in col_patterns.items():
+            for spec_name, keywords in col_keywords.items():
                 found = False
-                for pattern in patterns:
-                    if pattern in df.columns:
-                        spec_cols.append(pattern)
+                for col in df.columns:
+                    col_upper = str(col).upper()
+                    if any(kw in col_upper for kw in keywords):
+                        spec_cols.append(col)
                         found = True
+                        self.logger.info(f"{spec_name} 칼럼 매칭: '{col}'")
                         break
 
                 if not found:
