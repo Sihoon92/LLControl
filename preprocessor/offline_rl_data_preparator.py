@@ -264,8 +264,8 @@ class OfflineRLDataPreparator:
         # 6. Reward 계산
         reward = self._compute_reward(next_state_ratios)
 
-        # 7. 메타데이터
-        timestamp = before_data['_datetime'].max()  # 제어 직전 시점
+        # 7. 메타데이터 (meaningful_changes의 start_time = 제어 시작 시점)
+        timestamp = group_change.get('start_time', before_data['_datetime'].max())
 
         row = {
             'group_id': group_id,
