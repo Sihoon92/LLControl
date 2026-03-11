@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Tuple
 import os
 import logging
 import utils
+from preprocessor.zone_analyzer import ZoneAnalyzer
 
 
 class OfflineRLDataPreparator:
@@ -87,7 +88,17 @@ class OfflineRLDataPreparator:
             if col not in meta_cols and col != time_col
             and ('value' in str(col).lower() or str(col).isdigit())
         ]
-        self.logger.info(f"  Value 칼럼 수: {len(value_columns)}")
+        self.logger.info(f"  전체 Value 칼럼 수: {len(value_columns)}")
+
+        # 2-1. Boundary 필터링 (양 끝단 노이즈 칼럼 제거)
+        zone_analyzer = ZoneAnalyzer(self.config, self.logger)
+        left_boundary, right_boundary = zone_analyzer.find_boundaries(
+            densitometer_data, value_columns,
+            self.config.BOUNDARY_THRESHOLD,
+            meaningful_changes=meaningful_changes
+        )
+        value_columns = value_columns[left_boundary:right_boundary + 1]
+        self.logger.info(f"  유효 Value 칼럼 수: {len(value_columns)} (boundary: [{left_boundary}, {right_boundary}])")
 
         # 3. Zone 할당 (칼럼 -> Zone 매핑)
         zones = self._assign_zones(len(value_columns), self.n_zones)
