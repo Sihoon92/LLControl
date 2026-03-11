@@ -85,6 +85,7 @@ class OfflineRLDataPreparator:
         value_columns = [
             col for col in densitometer_data.columns
             if col not in meta_cols and col != time_col
+            and ('value' in str(col).lower() or str(col).isdigit())
         ]
         self.logger.info(f"  Value 칼럼 수: {len(value_columns)}")
 
