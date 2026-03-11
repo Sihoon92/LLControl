@@ -36,7 +36,7 @@ class PreprocessConfig:
     OUTPUT_3RD = '3rd_meaningful_changes.xlsx'
     OUTPUT_4TH_CONTROL = '4th_control_regions.xlsx'
     OUTPUT_5TH_NO_CONTROL = '5th_no_control_regions.xlsx'
-    OUTPUT_DENSITOMETER = 'extracted_densitometer_data.xlsx'
+    OUTPUT_DENSITOMETER = 'extracted_densitometer_data.parquet'
     OUTPUT_ZONE_ANALYSIS = 'zone_analysis_results.xlsx'
     OUTPUT_STATISTICAL_ANALYSIS = 'statistical_analysis_results.xlsx'
     OUTPUT_FINAL_STATS = 'final_zone_statistics.xlsx'

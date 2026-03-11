@@ -97,13 +97,15 @@ class DensitometerPreprocessor:
 
         self.logger.info(f"[통합 데이터] 저장 중...")
         try:
-            if output_file.endswith('.csv'):
+            if output_file.endswith('.parquet'):
+                self.extracted_data.to_parquet(output_file, index=False)
+            elif output_file.endswith('.csv'):
                 self.extracted_data.to_csv(output_file, index=False, encoding='utf-8-sig')
             elif output_file.endswith(('.xlsx', '.xls')):
                 self.extracted_data.to_excel(output_file, index=False)
             else:
-                output_file = output_file + '.xlsx'
-                self.extracted_data.to_excel(output_file, index=False)
+                output_file = output_file + '.parquet'
+                self.extracted_data.to_parquet(output_file, index=False)
 
             self.logger.info(f"✓ '{output_file}' 파일로 저장 완료")
 
