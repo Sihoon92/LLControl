@@ -37,7 +37,7 @@ class ZoneAnalyzer:
 
         # 통계 분석기 (외부에서 주입하거나 자동 생성)
         if statistical_analyzer is None:
-            from statistical_analyzer_v1_0 import StatisticalAnalyzer
+            from statistical_analyzer import StatisticalAnalyzer
             self.stat_analyzer = StatisticalAnalyzer(logger=self.logger)
         else:
             self.stat_analyzer = statistical_analyzer
@@ -260,7 +260,7 @@ class ZoneAnalyzer:
         self,
         densitometer_data: pd.DataFrame,
         meaningful_changes: pd.DataFrame,
-        valid_group_ids: List[int] = None
+        valid_group_ids: Optional[List[int]] = None
     ) -> pd.DataFrame:
         """
         통계 분석 수행 (제어 구간 + 비제어 구간)
@@ -490,7 +490,7 @@ class ZoneAnalyzer:
         df: pd.DataFrame,
         value_columns: List[str],
         threshold: float = 0.9,
-        meaningful_changes: pd.DataFrame = None
+        meaningful_changes: Optional[pd.DataFrame] = None
     ) -> Tuple[int, int]:
         """
         유의미한 데이터가 있는 좌/우 경계(boundary) 검출
