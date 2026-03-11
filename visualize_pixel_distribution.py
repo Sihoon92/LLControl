@@ -87,29 +87,33 @@ def compute_pixel_distribution(row_values, lsl, usl):
     """
     단일 시간대의 픽셀 값들을 USL/LSL 기준으로 3구간 분류.
 
+    분모: USL~LSL 사이 데이터 수 (out of range 제외)
+    분자: 각 구간(High/Mid/Low)의 데이터 수
+
     Returns:
-        dict with keys 'low', 'mid', 'high', 'out_of_range'
-        각 값은 비율 (0~1)
+        dict with keys 'low', 'mid', 'high'
+        각 값은 비율 (0~1), 합계 = 1.0
     """
     values = row_values[row_values > 0]  # 0 이하(무효) 제외
-    total = len(values)
+
+    # USL~LSL 사이 데이터만 대상 (out of range 제외)
+    in_range = values[(values >= lsl) & (values <= usl)]
+    total = len(in_range)
     if total == 0:
-        return {'low': 0.0, 'mid': 0.0, 'high': 0.0, 'out_of_range': 0.0}
+        return {'low': 0.0, 'mid': 0.0, 'high': 0.0}
 
     range_size = (usl - lsl) / 3.0
     boundary_low_mid = lsl + range_size
     boundary_mid_high = lsl + 2 * range_size
 
-    low_count = ((values >= lsl) & (values < boundary_low_mid)).sum()
-    mid_count = ((values >= boundary_low_mid) & (values < boundary_mid_high)).sum()
-    high_count = ((values >= boundary_mid_high) & (values <= usl)).sum()
-    out_count = ((values < lsl) | (values > usl)).sum()
+    low_count = ((in_range >= lsl) & (in_range < boundary_low_mid)).sum()
+    mid_count = ((in_range >= boundary_low_mid) & (in_range < boundary_mid_high)).sum()
+    high_count = ((in_range >= boundary_mid_high) & (in_range <= usl)).sum()
 
     return {
         'low': low_count / total,
         'mid': mid_count / total,
         'high': high_count / total,
-        'out_of_range': out_count / total,
     }
 
 
@@ -130,13 +134,15 @@ def process_group(raw_df, time_col, value_columns, group_info, usl, lsl):
         logger.warning(f"  Group {group_info['group_id']}: 데이터 없음 ({start_time} ~ {end_time})")
         return None
 
-    # 1분 단위로 리샘플링 (이미 1분 간격이면 그대로)
+    # 1분 단위로 floor하여 그룹핑
+    group_data['minute'] = group_data['datetime'].dt.floor('1min')
+
     results = []
-    for _, row in group_data.iterrows():
-        dist = compute_pixel_distribution(
-            row[value_columns].values.astype(float), lsl, usl
-        )
-        dist['datetime'] = row['datetime']
+    for minute_ts, minute_group in group_data.groupby('minute'):
+        # 해당 1분 윈도우의 모든 픽셀 값을 합침
+        all_values = minute_group[value_columns].values.astype(float).flatten()
+        dist = compute_pixel_distribution(all_values, lsl, usl)
+        dist['datetime'] = minute_ts
         results.append(dist)
 
     return pd.DataFrame(results)
@@ -151,10 +157,6 @@ def plot_group(ax, dist_df, group_id, usl, lsl, control_start=None, control_end=
             color='#2ecc71', linewidth=1.5, label='Mid', marker='s', markersize=2)
     ax.plot(dist_df['datetime'], dist_df['low'] * 100,
             color='#3498db', linewidth=1.5, label='Low', marker='^', markersize=2)
-    ax.plot(dist_df['datetime'], dist_df['out_of_range'] * 100,
-            color='#95a5a6', linewidth=1.0, linestyle='--', label='Out of range',
-            marker='x', markersize=2, alpha=0.7)
-
     # 제어 구간 표시
     if control_start is not None and control_end is not None:
         cs = parse_time(control_start)
