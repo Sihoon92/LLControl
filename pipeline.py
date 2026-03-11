@@ -139,17 +139,26 @@ class CoatingPreprocessPipeline:
 
         # Step 3: Zone 분석
         self.logger.info("[Step 3] Zone별 분석")
-        zone_results = self.zone_analyzer.run(
+        zone_analysis_result = self.zone_analyzer.run(
             densitometer_data=extracted_data,
             meaningful_changes=meaningful_changes,
             visualize=visualize
         )
 
-        if zone_results is None or zone_results.empty:
+        # ZoneAnalyzer.run()은 (zone_results, zone_statistics) 튜플 반환
+        if zone_analysis_result is None:
             self.logger.error("Zone 분석 실패")
             return
 
+        zone_results, zone_statistics = zone_analysis_result
+
+        if zone_results is None or zone_results.empty:
+            self.logger.error("Zone 분석 결과가 비어있습니다")
+            return
+
         self.results['zone_analysis'] = zone_results
+        if zone_statistics is not None:
+            self.results['zone_statistics'] = zone_statistics
 
         # Step 4: 모델 학습용 데이터 준비 (옵션)
         if prepare_model_data:
