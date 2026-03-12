@@ -258,7 +258,8 @@ class OfflineRLDataPreparator:
 
         for zone_id in range(1, self.n_zones + 1):
             gv_col = self.zone_to_gv_gap[zone_id]
-            features[f'delta_GV_{zone_id}'] = self._get_gv_delta(group_change, gv_col)
+            gv_num = zone_id + 1  # zone_1 -> GV_GAP02, 원본 번호 유지
+            features[f'delta_GV_{gv_num}'] = self._get_gv_delta(group_change, gv_col)
 
         features['delta_RPM'] = self._get_rpm_delta(group_change)
 
