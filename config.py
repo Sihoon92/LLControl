@@ -18,7 +18,7 @@ class PreprocessConfig:
 
     # Zone 설정
     N_ZONES = 11                    # Zone 개수
-    N_DIVISIONS = 6                 # 균등 분할 개수
+    N_DIVISIONS = 3                 # Low/Mid/High 3구간
 
     # 파일 경로
     OUTPUT_DIR = './outputs'
@@ -51,8 +51,8 @@ class PreprocessConfig:
     SIDE_COL = 'SIDE'
 
     # Offline RL 설정
-    OFFLINE_RL_N_DIVISIONS = 3              # Low/Mid/High 3구간
-    OFFLINE_RL_TIMESTEPS = 5                # 시계열 타임스텝 수 (분)
+    OFFLINE_RL_N_DIVISIONS = 3              # Low/Mid/High 3구간 (N_DIVISIONS와 동일)
+    OFFLINE_RL_TIMESTEPS = 5                # deprecated: 통합 집계 방식에서는 미사용
     OFFLINE_RL_DEAD_TIME_MINUTES = 0        # 지연 시간 (기본: 0분)
     OFFLINE_RL_REWARD_ALPHA = 1.0           # 보상 함수의 불량 패널티 가중치
     OUTPUT_OFFLINE_RL_DATA = 'offline_rl_training_data.parquet'  # 출력 파일명

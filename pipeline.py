@@ -191,9 +191,8 @@ class CoatingPreprocessPipeline:
             self.logger.info(f"[Step 5] Offline RL {mode.upper()} 데이터 준비")
 
             offline_rl_data = self.offline_rl_preparator.run(
-                densitometer_data=extracted_data,
-                meaningful_changes=meaningful_changes,
                 zone_analysis_results=zone_results,
+                meaningful_changes=meaningful_changes,
                 mode=mode
             )
 
