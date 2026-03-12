@@ -33,9 +33,6 @@ class OfflineRLDataPreparator:
         self.n_divisions = config.N_DIVISIONS  # 3 (Low/Mid/High)
         self.reward_alpha = config.OFFLINE_RL_REWARD_ALPHA  # 1.0
 
-        # Zone -> GV_GAP 매핑 (zone_1 -> GV_GAP02, ...)
-        self.zone_to_gv_gap = {i: f'GV_GAP{i+1:02d}' for i in range(1, 12)}
-
     def run(
         self,
         zone_analysis_results: pd.DataFrame,
@@ -253,13 +250,18 @@ class OfflineRLDataPreparator:
         return features, ratios_dict
 
     def _compute_action_features(self, group_change: pd.Series) -> Dict:
-        """GV_GAP 변화량 (11개) + RPM 변화량 (1개) 추출"""
+        """GV_GAP 변화량 + RPM 변화량 추출 (meaningful_changes 칼럼에서 동적 탐지)"""
         features = {}
 
-        for zone_id in range(1, self.n_zones + 1):
-            gv_col = self.zone_to_gv_gap[zone_id]
-            gv_num = zone_id + 1  # zone_1 -> GV_GAP02, 원본 번호 유지
-            features[f'delta_GV_{gv_num}'] = self._get_gv_delta(group_change, gv_col)
+        # meaningful_changes에서 GV_GAP*_before 패턴의 칼럼을 동적으로 탐지
+        gv_gap_cols = sorted(set(
+            col.replace('_before', '').replace('_after', '')
+            for col in group_change.index
+            if col.startswith('GV_GAP') and ('_before' in col or '_after' in col)
+        ))
+
+        for gv_col in gv_gap_cols:
+            features[f'delta_{gv_col}'] = self._get_gv_delta(group_change, gv_col)
 
         features['delta_RPM'] = self._get_rpm_delta(group_change)
 
