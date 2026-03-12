@@ -5,6 +5,19 @@
 # =============================================================================
 FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
+# ★ 프록시 설정 — 실제 주소를 입력하세요
+#   예: http://proxy.company.com:8080
+ARG HTTP_PROXY=http://YOUR_PROXY_HERE:PORT
+ARG HTTPS_PROXY=http://YOUR_PROXY_HERE:PORT
+ARG NO_PROXY=localhost,127.0.0.1
+
+ENV http_proxy=${HTTP_PROXY}
+ENV https_proxy=${HTTPS_PROXY}
+ENV no_proxy=${NO_PROXY}
+ENV HTTP_PROXY=${HTTP_PROXY}
+ENV HTTPS_PROXY=${HTTPS_PROXY}
+ENV NO_PROXY=${NO_PROXY}
+
 # 빌드 시 불필요한 대화형 프롬프트 방지
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
