@@ -1,0 +1,36 @@
+# Git
+.git
+.gitignore
+
+# 출력/로그 (서버에서 새로 생성)
+outputs/
+logs/
+
+# 데이터 파일 (볼륨 마운트로 연결)
+*.xlsx
+*.csv
+*.parquet
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+.eggs
+
+# Docker
+Dockerfile
+.dockerignore
+docker_build_and_export.sh
+docker_load_and_run.sh
+*.tar.gz
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# 문서 (실행에 불필요)
+*.md
+docs/
