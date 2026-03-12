@@ -1,14 +1,14 @@
 """
 Offline RL 학습을 위한 전체 Zone MDP 데이터 전처리 모듈
 
-zone_analysis_results의 존별 3구간(Low/Mid/High) 비율을 활용하여
-전체 11 Zone을 하나의 행으로 구성
+zone_analysis_results의 존별 N구간 비율을 활용하여
+전체 Zone을 하나의 행으로 구성
 
 1행 = 1제어 이벤트 (Control Event)
-- State S_t: 11 zones × 3 CLR = 33차원 (제어 전 5분 통합)
-- Action A_t: GV_GAP 변화량 11개 + RPM 변화량 1개 = 12차원
-- Reward R_t: Mid 비율 보상 - Low/High 패널티 = 1차원
-- Next State S_{t+1}: 11 zones × 3 CLR = 33차원 (제어 후 5분 통합)
+- State S_t: N_ZONES × N_DIVISIONS CLR 차원 (제어 전 5분 통합)
+- Action A_t: GV_GAP 변화량 + RPM 변화량
+- Reward R_t: 가중치 기반 보상 (중앙 구간 보상, 양 끝 구간 패널티)
+- Next State S_{t+1}: N_ZONES × N_DIVISIONS CLR 차원 (제어 후 5분 통합)
 """
 
 import pandas as pd
@@ -22,7 +22,6 @@ import utils
 class OfflineRLDataPreparator:
     """Offline RL (MDP 튜플) 데이터 생성 클래스"""
 
-    CLR_COMPONENTS = ['Low', 'Mid', 'High']
     EPSILON = 1e-4
 
     def __init__(self, config, logger: Optional[logging.Logger] = None):
@@ -30,8 +29,11 @@ class OfflineRLDataPreparator:
         self.logger = logger or logging.getLogger('coating_preprocessor.offline_rl')
 
         self.n_zones = config.N_ZONES  # 11
-        self.n_divisions = config.N_DIVISIONS  # 3 (Low/Mid/High)
+        self.n_divisions = config.N_DIVISIONS
         self.reward_alpha = config.OFFLINE_RL_REWARD_ALPHA  # 1.0
+
+        # 가중치 생성: 중앙 구간일수록 +, 양 끝일수록 -
+        self.reward_weights = self._build_reward_weights(self.n_divisions)
 
     def run(
         self,
@@ -239,13 +241,13 @@ class OfflineRLDataPreparator:
             ratios = self._replace_zeros(ratios)
             clr_values = self._compute_clr(ratios)
 
-            # CLR 피처 저장
-            for c_idx, comp in enumerate(self.CLR_COMPONENTS):
-                features[f'{prefix}_Z{zone_id}_CLR_{comp}'] = clr_values[c_idx]
+            # CLR 피처 저장 (div_1, div_2, ..., div_N)
+            for div_idx in range(n_div):
+                features[f'{prefix}_Z{zone_id}_CLR_div_{div_idx + 1}'] = clr_values[div_idx]
 
             # 비율 저장 (Reward 계산용)
-            for c_idx, comp in enumerate(self.CLR_COMPONENTS):
-                ratios_dict[f'Z{zone_id}_{comp}'] = ratios[c_idx]
+            for div_idx in range(n_div):
+                ratios_dict[f'Z{zone_id}_div_{div_idx + 1}'] = ratios[div_idx]
 
         return features, ratios_dict
 
@@ -269,14 +271,15 @@ class OfflineRLDataPreparator:
 
     def _compute_reward(self, ratios: Dict[str, float]) -> float:
         """
-        보상 함수 계산
+        가중치 기반 보상 함수 계산
 
-        R = Σ(Mid 비율) - α × Σ(Low + High 비율)
+        각 구간에 가중치를 부여: 중앙 구간은 양의 가중치, 양 끝은 음의 가중치.
+        R = Σ_zone Σ_div (weight[div] × ratio[zone, div])
 
         Parameters
         ----------
         ratios : dict
-            Zone별 비율 딕셔너리 (Z{n}_Low, Z{n}_Mid, Z{n}_High)
+            Zone별 비율 딕셔너리 (Z{n}_div_{d})
 
         Returns
         -------
@@ -285,15 +288,34 @@ class OfflineRLDataPreparator:
         if not ratios:
             return 0.0
 
-        total_mid = sum(ratios.get(f'Z{z}_Mid', 0.0) for z in range(1, self.n_zones + 1))
-        total_penalty = sum(
-            ratios.get(f'Z{z}_Low', 0.0) + ratios.get(f'Z{z}_High', 0.0)
-            for z in range(1, self.n_zones + 1)
-        )
-
-        reward = total_mid - self.reward_alpha * total_penalty
+        reward = 0.0
+        for z in range(1, self.n_zones + 1):
+            for d, w in enumerate(self.reward_weights):
+                ratio = ratios.get(f'Z{z}_div_{d + 1}', 0.0)
+                reward += w * ratio
 
         return float(reward)
+
+    @staticmethod
+    def _build_reward_weights(n_divisions: int) -> List[float]:
+        """
+        구간별 보상 가중치 생성
+
+        중앙 구간에 가장 높은 양의 가중치, 양 끝에 가장 높은 음의 가중치.
+        예) n=3: [-1.0, 1.0, -1.0]
+        예) n=5: [-1.0, -0.5, 1.0, -0.5, -1.0]
+        예) n=6: [-1.0, -0.6, 0.2, 0.2, -0.6, -1.0]
+        """
+        center = (n_divisions - 1) / 2.0
+        max_dist = center if center > 0 else 1.0
+
+        weights = []
+        for i in range(n_divisions):
+            dist = abs(i - center) / max_dist  # 0(중앙) ~ 1(끝)
+            w = 1.0 - 2.0 * dist  # 중앙=1, 끝=-1
+            weights.append(w)
+
+        return weights
 
     # ===================================================================
     # 유틸리티 메서드
