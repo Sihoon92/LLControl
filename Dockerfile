@@ -18,6 +18,19 @@ ENV HTTP_PROXY=${HTTP_PROXY}
 ENV HTTPS_PROXY=${HTTPS_PROXY}
 ENV NO_PROXY=${NO_PROXY}
 
+# ★ 회사 Root CA 인증서 등록
+#   빌드 전에 cert.crt 파일을 Dockerfile과 같은 디렉토리에 복사해두세요
+#   (WSL 기준: cp /mnt/c/cert.crt ./cert.crt)
+COPY cert.crt /usr/local/share/ca-certificates/company-root-ca.crt
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && update-ca-certificates \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# pip / curl / requests 등에서도 CA 인식하도록 환경변수 설정
+ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+
 # 빌드 시 불필요한 대화형 프롬프트 방지
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
