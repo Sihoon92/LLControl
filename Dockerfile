@@ -1,7 +1,7 @@
 # =============================================================================
 # LLControl - GPU Docker Image
 # Base: NVIDIA CUDA 12.4 + Ubuntu 22.04
-# Python 3.12 + PyTorch + d3rlpy + scikit-learn + CatBoost + XGBoost
+# Python 3.11 + PyTorch + d3rlpy + scikit-learn + CatBoost + XGBoost
 # =============================================================================
 FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
@@ -38,20 +38,23 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
-# 시스템 패키지 설치 + Python 3.12
+# 시스템 패키지 설치 + Python 3.11
+#   Ubuntu 22.04 기본 제공: python3.10
+#   deadsnakes PPA로 python3.11 설치
 RUN apt-get update && apt-get install -y --no-install-recommends \
     software-properties-common \
     && add-apt-repository ppa:deadsnakes/ppa \
     && apt-get update && apt-get install -y --no-install-recommends \
-    python3.12 \
-    python3.12-venv \
-    python3.12-dev \
+    python3.11 \
+    python3.11-venv \
+    python3.11-dev \
+    python3.11-distutils \
     curl \
     git \
-    && curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12 \
-    && ln -sf /usr/bin/python3.12 /usr/bin/python3 \
-    && ln -sf /usr/bin/python3.12 /usr/bin/python \
-    && ln -sf /usr/local/bin/pip3.12 /usr/local/bin/pip \
+    && curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11 \
+    && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
+    && ln -sf /usr/bin/python3.11 /usr/bin/python \
+    && ln -sf /usr/local/bin/pip3.11 /usr/local/bin/pip \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # pip 업그레이드

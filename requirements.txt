@@ -1,28 +1,35 @@
 # =============================================================================
-# LLControl - Python Dependencies
+# LLControl - Python Dependencies (Python 3.11)
 # =============================================================================
 # PyTorch는 Dockerfile에서 CUDA 버전에 맞게 별도 설치
 # =============================================================================
 
 # 데이터 처리
-pandas>=2.0.0
-numpy>=1.24.0
-scipy>=1.10.0
+pandas>=2.0.0,<2.3.0
+numpy>=1.24.0,<2.0.0
+scipy>=1.10.0,<1.14.0
 openpyxl>=3.1.0
 pyarrow>=12.0.0
 
 # 머신러닝
-scikit-learn>=1.3.0
-catboost>=1.2
-xgboost>=2.0.0
+scikit-learn>=1.3.0,<1.6.0
+catboost>=1.2,<1.3
+xgboost>=2.0.0,<2.2.0
 
 # Offline RL
-d3rlpy>=2.0.0
+d3rlpy>=2.0.0,<2.7.0
 
 # 시각화
-matplotlib>=3.7.0
-seaborn>=0.12.0
+matplotlib>=3.7.0,<3.10.0
+seaborn>=0.12.0,<0.14.0
 
 # 유틸리티
 tqdm>=4.65.0
 joblib>=1.3.0
+
+# 테스트
+pytest>=7.0.0
+
+# 참고: xlwings는 preprocessor/apc_preprocessor.py, utils.py에서 사용되나
+# Linux/Docker 환경에서는 동작하지 않음. Windows 로컬 실행 시에만 별도 설치:
+#   pip install xlwings>=0.30.0
