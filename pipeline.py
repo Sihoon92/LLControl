@@ -8,7 +8,7 @@ import os
 import logging
 
 from config import PreprocessConfig
-from utils import save_to_excel, ensure_directory, setup_logger
+from utils import save_to_excel, _save_to_parquet, ensure_directory, setup_logger
 # 아래 모듈들은 사용자가 구현해야 함 (문맥상 import 경로 유지)
 from preprocessor.apc_preprocessor import APCPreprocessor
 from preprocessor.densitometer_preprocessor import DensitometerPreprocessor
@@ -256,9 +256,9 @@ class CoatingPreprocessPipeline:
             self.logger.error("APC 파일 통합 실패")
             return
 
-        # 통합된 APC 파일 임시 저장
-        temp_apc_file = os.path.join(self.config.OUTPUT_DIR, 'temp_merged_apc.xlsx')
-        save_to_excel(merged_apc, temp_apc_file, 'Merged_APC', logger=self.logger)
+        # 통합된 APC 파일 저장 (parquet)
+        temp_apc_file = os.path.join(self.config.OUTPUT_DIR, 'temp_merged_apc.parquet')
+        _save_to_parquet(merged_apc, temp_apc_file, logger=self.logger)
 
         # 밀도계 파일 통합
         merged_densitometer = self.data_merger.merge_densitometer_files(densitometer_files)
@@ -266,12 +266,12 @@ class CoatingPreprocessPipeline:
             self.logger.error("밀도계 파일 통합 실패")
             return
 
-        # 통합된 밀도계 파일 임시 저장
+        # 통합된 밀도계 파일 저장 (parquet)
         temp_densitometer_file = os.path.join(
             self.config.OUTPUT_DIR,
-            'temp_merged_densitometer.xlsx'
+            'temp_merged_densitometer.parquet'
         )
-        save_to_excel(merged_densitometer, temp_densitometer_file, 'Merged_Densitometer', logger=self.logger)
+        _save_to_parquet(merged_densitometer, temp_densitometer_file, logger=self.logger)
 
         # LLspec 파일 통합 (있는 경우)
         if llspec_files:
@@ -279,9 +279,9 @@ class CoatingPreprocessPipeline:
             if merged_llspec is not None:
                 temp_llspec_file = os.path.join(
                     self.config.OUTPUT_DIR,
-                    'temp_merged_llspec.xlsx'
+                    'temp_merged_llspec.parquet'
                 )
-                save_to_excel(merged_llspec, temp_llspec_file, 'Merged_LLspec', logger=self.logger)
+                _save_to_parquet(merged_llspec, temp_llspec_file, logger=self.logger)
 
         self.logger.info("="*80)
         self.logger.info("데이터 파일 통합 완료")
