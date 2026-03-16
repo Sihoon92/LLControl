@@ -19,9 +19,11 @@ IMPORT_FILE="${IMAGE_NAME}.tar.gz"
 CONTAINER_NAME="llcontrol-gpu"
 
 # ★ 아래 값을 실제 환경에 맞게 수정하세요
-WORKSPACE_DIR="/YOUR_WORKSPACE_PATH_HERE"  # 예: /data/eesept/shared_volume/vision-dev/moon/APCControl
-DATA_DIR="/YOUR_DATA_PATH_HERE"
-OUTPUT_DIR="/YOUR_OUTPUT_PATH_HERE"
+#   예: WORKSPACE_DIR="/data/eesept/shared_volume/vision-dev/moon"
+WORKSPACE_DIR="/YOUR_WORKSPACE_PATH_HERE"
+WORK_DIR="${WORKSPACE_DIR}/LLControl"
+DATA_DIR="${WORKSPACE_DIR}/LLControl/data"
+OUTPUT_DIR="${WORKSPACE_DIR}/LLControl/outputs"
 GPU_DEVICE="YOUR_GPU_NUMBER_HERE"  # 예: "0", "1", "0,1", "all"
 
 # --run-only 옵션 체크
@@ -55,14 +57,15 @@ echo "[2/3] GPU 상태 확인..."
 docker run --rm --gpus "\"device=${GPU_DEVICE}\"" ${IMAGE_NAME}:${IMAGE_TAG} nvidia-smi
 
 # 3. 디렉토리 생성
-mkdir -p "${DATA_DIR}" "${OUTPUT_DIR}"
+mkdir -p "${WORK_DIR}" "${DATA_DIR}" "${OUTPUT_DIR}"
 
 # 4. 컨테이너 실행
 echo ""
 echo "[3/3] 컨테이너 실행..."
-echo "  작업 경로:   ${WORKSPACE_DIR} → /workspace/LLControl"
-echo "  데이터 경로: ${DATA_DIR} → /workspace/data"
-echo "  출력 경로:   ${OUTPUT_DIR} → /workspace/outputs"
+echo "  워크스페이스: ${WORKSPACE_DIR} → /workspace"
+echo "  작업 경로:   ${WORK_DIR} → /workspace/LLControl"
+echo "  데이터 경로: ${DATA_DIR} → /workspace/LLControl/data"
+echo "  출력 경로:   ${OUTPUT_DIR} → /workspace/LLControl/outputs"
 echo ""
 
 # 기존 컨테이너가 있으면 제거
@@ -71,9 +74,7 @@ docker rm -f ${CONTAINER_NAME} 2>/dev/null || true
 docker run -it \
     --gpus "\"device=${GPU_DEVICE}\"" \
     --name ${CONTAINER_NAME} \
-    -v "${WORKSPACE_DIR}:/workspace/LLControl" \
-    -v "${DATA_DIR}:/workspace/data" \
-    -v "${OUTPUT_DIR}:/workspace/outputs" \
+    -v "${WORKSPACE_DIR}:/workspace" \
     --shm-size=8g \
     ${IMAGE_NAME}:${IMAGE_TAG}
 
