@@ -18,13 +18,9 @@ IMAGE_TAG="latest"
 IMPORT_FILE="${IMAGE_NAME}.tar.gz"
 CONTAINER_NAME="llcontrol-gpu"
 
-# ★ 아래 경로를 GPU 서버의 실제 경로로 수정하세요
-BASE_DIR="/data/eesept/shared_volume/vision-dev/moon/APCControl"
-DATA_DIR="${BASE_DIR}/data"
-OUTPUT_DIR="${BASE_DIR}/outputs"
-
-# ★ 사용할 GPU 번호 (예: "0", "1", "0,1" 등)
-GPU_DEVICE="1"
+# ★ 아래 경로를 GPU 서버의 실제 데이터 경로로 수정하세요
+DATA_DIR="$(pwd)/data"
+OUTPUT_DIR="$(pwd)/outputs"
 
 # --run-only 옵션 체크
 RUN_ONLY=false
@@ -54,7 +50,7 @@ fi
 # 2. GPU 확인
 echo ""
 echo "[2/3] GPU 상태 확인..."
-docker run --rm --gpus "\"device=${GPU_DEVICE}\"" ${IMAGE_NAME}:${IMAGE_TAG} nvidia-smi
+docker run --rm --gpus all ${IMAGE_NAME}:${IMAGE_TAG} nvidia-smi
 
 # 3. 디렉토리 생성
 mkdir -p "${DATA_DIR}" "${OUTPUT_DIR}"
@@ -70,7 +66,7 @@ echo ""
 docker rm -f ${CONTAINER_NAME} 2>/dev/null || true
 
 docker run -it \
-    --gpus "\"device=${GPU_DEVICE}\"" \
+    --gpus all \
     --name ${CONTAINER_NAME} \
     -v "${DATA_DIR}:/workspace/data" \
     -v "${OUTPUT_DIR}:/workspace/outputs" \
