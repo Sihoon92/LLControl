@@ -3,7 +3,11 @@
 """
 
 import pandas as pd
-import xlwings as xw
+try:
+    import xlwings as xw
+    HAS_XLWINGS = True
+except ImportError:
+    HAS_XLWINGS = False
 from datetime import datetime
 from typing import List, Union, Optional
 import os
@@ -128,31 +132,39 @@ def save_to_excel(df: pd.DataFrame, output_path: str, sheet_name: str = 'Sheet1'
 
 
 def _save_to_excel_xlwings(df: pd.DataFrame, output_path: str, sheet_name: str = 'Sheet1', logger: Optional[logging.Logger] = None):
-    """xlwings를 사용하여 DataFrame을 엑셀로 저장 (내부 함수)"""
+    """xlwings를 사용하여 DataFrame을 엑셀로 저장 (내부 함수). xlwings 없으면 openpyxl fallback."""
     if logger is None:
         logger = logging.getLogger('coating_preprocessor')
 
-    app = xw.App(visible=False)
-    wb = None
-    try:
-        wb = xw.Book()
-        sheet = wb.sheets[0]
-        sheet.name = sheet_name
+    if HAS_XLWINGS:
+        app = xw.App(visible=False)
+        wb = None
+        try:
+            wb = xw.Book()
+            sheet = wb.sheets[0]
+            sheet.name = sheet_name
 
-        sheet.range('A1').value = df
-        sheet.range('A1').expand('right').api.Font.Bold = True
-        sheet.autofit()
+            sheet.range('A1').value = df
+            sheet.range('A1').expand('right').api.Font.Bold = True
+            sheet.autofit()
 
-        wb.save(output_path)
-        logger.info(f"Excel 저장 완료: '{output_path}' ({len(df)} 행, {len(df.columns)} 칼럼)")
+            wb.save(output_path)
+            logger.info(f"Excel 저장 완료 (xlwings): '{output_path}' ({len(df)} 행, {len(df.columns)} 칼럼)")
 
-    except Exception as e:
-        logger.error(f"Excel 저장 오류: {e}")
-        raise
-    finally:
-        if wb:
-            wb.close()
-        app.quit()
+        except Exception as e:
+            logger.error(f"Excel 저장 오류: {e}")
+            raise
+        finally:
+            if wb:
+                wb.close()
+            app.quit()
+    else:
+        try:
+            df.to_excel(output_path, sheet_name=sheet_name, index=True, engine='openpyxl')
+            logger.info(f"Excel 저장 완료 (openpyxl): '{output_path}' ({len(df)} 행, {len(df.columns)} 칼럼)")
+        except Exception as e:
+            logger.error(f"Excel 저장 오류: {e}")
+            raise
 
 
 def normalize_for_parquet(df: pd.DataFrame, logger: Optional[logging.Logger] = None) -> pd.DataFrame:
@@ -294,33 +306,37 @@ def _load_excel_with_xlwings(
     if logger is None:
         logger = logging.getLogger('coating_preprocessor')
 
-    app = xw.App(visible=False)
-    wb = None
-    try:
-        # 엑셀 파일 열기
-        wb = app.books.open(file_path)
+    if HAS_XLWINGS:
+        app = xw.App(visible=False)
+        wb = None
+        try:
+            wb = app.books.open(file_path)
 
-        # 시트 선택
-        if isinstance(sheet_name, int):
-            sheet = wb.sheets[sheet_name]
-        else:
-            sheet = wb.sheets[sheet_name]
+            if isinstance(sheet_name, int):
+                sheet = wb.sheets[sheet_name]
+            else:
+                sheet = wb.sheets[sheet_name]
 
-        # 데이터 읽기 (헤더 포함)
-        data = sheet.used_range.options(pd.DataFrame, header=1, index=False).value
+            data = sheet.used_range.options(pd.DataFrame, header=1, index=False).value
 
-        logger.debug(f"Excel 로드 완료: {file_path} (시트: {sheet_name}, 행: {len(data) if data is not None else 0})")
+            logger.debug(f"Excel 로드 완료 (xlwings): {file_path} (시트: {sheet_name}, 행: {len(data) if data is not None else 0})")
+            return data
 
-        return data
-
-    except Exception as e:
-        logger.error(f"xlwings Excel 로드 오류 ({file_path}): {e}")
-        raise
-    finally:
-        # 리소스 정리
-        if wb:
-            wb.close()
-        app.quit()
+        except Exception as e:
+            logger.error(f"xlwings Excel 로드 오류 ({file_path}): {e}")
+            raise
+        finally:
+            if wb:
+                wb.close()
+            app.quit()
+    else:
+        try:
+            data = pd.read_excel(file_path, sheet_name=sheet_name, engine='openpyxl')
+            logger.debug(f"Excel 로드 완료 (openpyxl): {file_path} (시트: {sheet_name}, 행: {len(data)})")
+            return data
+        except Exception as e:
+            logger.error(f"openpyxl Excel 로드 오류 ({file_path}): {e}")
+            raise
 
 
 def load_file(

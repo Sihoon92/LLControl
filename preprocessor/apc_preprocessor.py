@@ -4,7 +4,11 @@ APC 데이터 전처리 모듈 v1.3
 - 통계적 분석을 위한 데이터 수집
 """
 
-import xlwings as xw
+try:
+    import xlwings as xw
+    HAS_XLWINGS = True
+except ImportError:
+    HAS_XLWINGS = False
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -829,31 +833,51 @@ class APCPreprocessor:
 
         # Excel 파일의 경우 멀티레벨 헤더 처리를 위해 xlwings 사용
         if file_ext in ['.xlsx', '.xls']:
-            app = xw.App(visible=False)
-            wb = None
-            try:
-                wb = xw.Book(llspec_file)
-                sheet = wb.sheets[0]
+            if HAS_XLWINGS:
+                app = xw.App(visible=False)
+                wb = None
+                try:
+                    wb = xw.Book(llspec_file)
+                    sheet = wb.sheets[0]
 
-                # 데이터 읽기
-                used_range = sheet.used_range
-                data = used_range.value
+                    used_range = sheet.used_range
+                    data = used_range.value
 
-                # 멀티레벨 헤더 처리 함수로 DataFrame 생성
-                df = flatten_multilevel_header(data, logger=self.logger)
+                    df = flatten_multilevel_header(data, logger=self.logger)
 
-                if df.empty:
-                    self.logger.error("데이터가 비어있습니다.")
+                    if df.empty:
+                        self.logger.error("데이터가 비어있습니다.")
+                        return None
+
+                    self.logger.info(f"Excel 파일 로드 완료 (xlwings)")
+                except Exception as e:
+                    self.logger.error(f"Excel 파일 로드 오류: {e}", exc_info=True)
                     return None
+                finally:
+                    if wb:
+                        wb.close()
+                    app.quit()
+            else:
+                try:
+                    from openpyxl import load_workbook
+                    wb = load_workbook(llspec_file, data_only=True)
+                    sheet = wb.worksheets[0]
 
-                self.logger.info(f"Excel 파일 로드 완료 (xlwings)")
-            except Exception as e:
-                self.logger.error(f"Excel 파일 로드 오류: {e}", exc_info=True)
-                return None
-            finally:
-                if wb:
+                    data = []
+                    for row in sheet.iter_rows(values_only=True):
+                        data.append(list(row))
                     wb.close()
-                app.quit()
+
+                    df = flatten_multilevel_header(data, logger=self.logger)
+
+                    if df.empty:
+                        self.logger.error("데이터가 비어있습니다.")
+                        return None
+
+                    self.logger.info(f"Excel 파일 로드 완료 (openpyxl)")
+                except Exception as e:
+                    self.logger.error(f"Excel 파일 로드 오류: {e}", exc_info=True)
+                    return None
         else:
             # Parquet/CSV 파일의 경우 utils.load_file() 사용
             try:
