@@ -19,6 +19,7 @@ IMPORT_FILE="${IMAGE_NAME}.tar.gz"
 CONTAINER_NAME="llcontrol-gpu"
 
 # ★ 아래 값을 실제 환경에 맞게 수정하세요
+WORKSPACE_DIR="/YOUR_WORKSPACE_PATH_HERE"  # 예: /data/eesept/shared_volume/vision-dev/moon/APCControl
 DATA_DIR="/YOUR_DATA_PATH_HERE"
 OUTPUT_DIR="/YOUR_OUTPUT_PATH_HERE"
 GPU_DEVICE="YOUR_GPU_NUMBER_HERE"  # 예: "0", "1", "0,1", "all"
@@ -59,6 +60,7 @@ mkdir -p "${DATA_DIR}" "${OUTPUT_DIR}"
 # 4. 컨테이너 실행
 echo ""
 echo "[3/3] 컨테이너 실행..."
+echo "  작업 경로:   ${WORKSPACE_DIR} → /workspace/LLControl"
 echo "  데이터 경로: ${DATA_DIR} → /workspace/data"
 echo "  출력 경로:   ${OUTPUT_DIR} → /workspace/outputs"
 echo ""
@@ -69,6 +71,7 @@ docker rm -f ${CONTAINER_NAME} 2>/dev/null || true
 docker run -it \
     --gpus "\"device=${GPU_DEVICE}\"" \
     --name ${CONTAINER_NAME} \
+    -v "${WORKSPACE_DIR}:/workspace/LLControl" \
     -v "${DATA_DIR}:/workspace/data" \
     -v "${OUTPUT_DIR}:/workspace/outputs" \
     --shm-size=8g \
