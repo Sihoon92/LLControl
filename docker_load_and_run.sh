@@ -18,9 +18,10 @@ IMAGE_TAG="latest"
 IMPORT_FILE="${IMAGE_NAME}.tar.gz"
 CONTAINER_NAME="llcontrol-gpu"
 
-# ★ 아래 경로를 GPU 서버의 실제 데이터 경로로 수정하세요
-DATA_DIR="$(pwd)/data"
-OUTPUT_DIR="$(pwd)/outputs"
+# ★ 아래 값을 실제 환경에 맞게 수정하세요
+DATA_DIR="/YOUR_DATA_PATH_HERE"
+OUTPUT_DIR="/YOUR_OUTPUT_PATH_HERE"
+GPU_DEVICE="YOUR_GPU_NUMBER_HERE"  # 예: "0", "1", "0,1", "all"
 
 # --run-only 옵션 체크
 RUN_ONLY=false
@@ -50,7 +51,7 @@ fi
 # 2. GPU 확인
 echo ""
 echo "[2/3] GPU 상태 확인..."
-docker run --rm --gpus all ${IMAGE_NAME}:${IMAGE_TAG} nvidia-smi
+docker run --rm --gpus "\"device=${GPU_DEVICE}\"" ${IMAGE_NAME}:${IMAGE_TAG} nvidia-smi
 
 # 3. 디렉토리 생성
 mkdir -p "${DATA_DIR}" "${OUTPUT_DIR}"
@@ -66,7 +67,7 @@ echo ""
 docker rm -f ${CONTAINER_NAME} 2>/dev/null || true
 
 docker run -it \
-    --gpus all \
+    --gpus "\"device=${GPU_DEVICE}\"" \
     --name ${CONTAINER_NAME} \
     -v "${DATA_DIR}:/workspace/data" \
     -v "${OUTPUT_DIR}:/workspace/outputs" \
