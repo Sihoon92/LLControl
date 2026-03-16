@@ -121,15 +121,34 @@ def main():
     # ===================================================================
 
     if args.merge:
-        # 병합 모드: 다중 파일 병합만 수행
-        if args.apc_multiple and args.densitometer_multiple:
+        # ====== 직접 지정 영역 (코드에서 파일 경로를 직접 수정) ======
+        apc_files = [
+            # "data/raw/apc_file1.xlsx",
+            # "data/raw/apc_file2.xlsx",
+        ]
+        densitometer_files = [
+            # "data/raw/densitometer_file1.csv",
+            # "data/raw/densitometer_file2.csv",
+        ]
+        llspec_files = [
+            # "data/raw/llspec_file1.xlsx",
+            # "data/raw/llspec_file2.xlsx",
+        ]
+        # ==============================================================
+
+        # CLI 인자가 있으면 CLI 인자 우선 사용
+        apc_files = args.apc_multiple or apc_files
+        densitometer_files = args.densitometer_multiple or densitometer_files
+        llspec_files = args.llspec_multiple or llspec_files or None
+
+        if apc_files and densitometer_files:
             pipeline.merge_multiple_files(
-                apc_files=args.apc_multiple,
-                densitometer_files=args.densitometer_multiple,
-                llspec_files=args.llspec_multiple
+                apc_files=apc_files,
+                densitometer_files=densitometer_files,
+                llspec_files=llspec_files
             )
         else:
-            pipeline.logger.error("--merge 사용 시 --apc-multiple/--densitometer-multiple을 지정해주세요.")
+            pipeline.logger.error("apc_files와 densitometer_files를 지정해주세요.")
             parser.print_help()
             return
 
