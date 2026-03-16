@@ -45,7 +45,7 @@ class DataMerger:
             self.logger.info(f"처리 중: {os.path.basename(file_path)}")
 
             try:
-                # 파일 형식에 따라 자동 로드 (Excel: xlwings, CSV/Parquet: pandas)
+                # 파일 형식에 따라 자동 로드 (Excel: xlwings/openpyxl, CSV/Parquet: pandas)
                 df = utils.load_file(file_path, logger=self.logger)
 
                 self.logger.info(f"  ✓ {len(df)} 행 로드")
@@ -97,7 +97,7 @@ class DataMerger:
             self.logger.info(f"처리 중: {os.path.basename(file_path)}")
 
             try:
-                # 파일 형식에 따라 자동 로드 (Excel: xlwings, CSV/Parquet: pandas)
+                # 파일 형식에 따라 자동 로드 (Excel: xlwings/openpyxl, CSV/Parquet: pandas)
                 df = utils.load_file(file_path, logger=self.logger)
 
                 self.logger.info(f"  ✓ {len(df)} 행 로드")
@@ -149,7 +149,7 @@ class DataMerger:
             self.logger.info(f"처리 중: {os.path.basename(file_path)}")
 
             try:
-                # 파일 형식에 따라 자동 로드 (Excel: xlwings, CSV/Parquet: pandas)
+                # 파일 형식에 따라 자동 로드 (Excel: xlwings/openpyxl, CSV/Parquet: pandas)
                 df = utils.load_file(file_path, logger=self.logger)
 
                 self.logger.info(f"  ✓ {len(df)} 행 로드")
