@@ -12,16 +12,32 @@
 
 set -e
 
-# ★ 아래 3개 값을 실제 환경에 맞게 수정하세요
+# ★ 아래 값을 실제 환경에 맞게 수정하세요
 REMOTE_USER="your_username"
 REMOTE_HOST="192.168.x.x"
 REMOTE_DIR="/data/eesept/shared_volume/vision-dev/moon/APCControl/"
+REMOTE_PASS=""  # 비밀번호 입력 (비워두면 SSH 키 인증 사용)
 
 # =============================================================================
 # 설정 끝 — 아래는 수정 불필요
 # =============================================================================
 
 LOCAL_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# 비밀번호가 설정된 경우 sshpass 사용
+if [ -n "$REMOTE_PASS" ]; then
+    if ! command -v sshpass &> /dev/null; then
+        echo "오류: sshpass가 설치되어 있지 않습니다."
+        echo "  설치: sudo apt install sshpass (Ubuntu/Debian)"
+        echo "        brew install hudochenkov/sshpass/sshpass (macOS)"
+        exit 1
+    fi
+    SSH_CMD="sshpass -p '${REMOTE_PASS}'"
+    RSH_OPT=(-e "sshpass -p '${REMOTE_PASS}' ssh")
+else
+    SSH_CMD=""
+    RSH_OPT=()
+fi
 DRY_RUN=false
 
 # --dry-run 옵션 분리
@@ -81,10 +97,10 @@ if [ ${#ARGS[@]} -gt 0 ]; then
         echo "전송 중: $(basename "$item") ..."
 
         if [ "$USE_RSYNC" = true ]; then
-            rsync -avz --progress "$item" \
+            rsync -avz --progress "${RSH_OPT[@]}" "$item" \
                 "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}"
         else
-            scp -r "$item" \
+            $SSH_CMD scp -r "$item" \
                 "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}"
         fi
     done
@@ -118,14 +134,14 @@ else
 
         if [ "$DRY_RUN" = true ]; then
             echo "[dry-run] 전송 대상 파일 목록:"
-            rsync "${RSYNC_OPTS[@]}" --dry-run "${LOCAL_DIR}/" \
+            rsync "${RSYNC_OPTS[@]}" "${RSH_OPT[@]}" --dry-run "${LOCAL_DIR}/" \
                 "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}"
             echo ""
             echo "[dry-run] 실제 전송하지 않고 종료합니다."
             exit 0
         fi
 
-        rsync "${RSYNC_OPTS[@]}" "${LOCAL_DIR}/" \
+        rsync "${RSYNC_OPTS[@]}" "${RSH_OPT[@]}" "${LOCAL_DIR}/" \
             "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}"
     else
         echo "[방식] scp (전체 파일 전송)"
@@ -137,7 +153,7 @@ else
             exit 0
         fi
 
-        scp -r "${LOCAL_DIR}" \
+        $SSH_CMD scp -r "${LOCAL_DIR}" \
             "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}"
     fi
 fi
