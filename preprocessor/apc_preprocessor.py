@@ -4,7 +4,11 @@ APC 데이터 전처리 모듈 v1.3
 - 통계적 분석을 위한 데이터 수집
 """
 
-import xlwings as xw
+try:
+    import xlwings as xw
+    HAS_XLWINGS = True
+except ImportError:
+    HAS_XLWINGS = False
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -14,10 +18,93 @@ import logging
 import utils
 
 
+def flatten_multilevel_header(data: list, logger: Optional[logging.Logger] = None) -> pd.DataFrame:
+    """
+    엑셀 멀티레벨 헤더를 처리하여 평탄화된 DataFrame 반환
+
+    - 멀티헤더가 아니면 그대로 반환
+    - None 값은 이전 값으로 채움 (엑셀 병합셀 대응)
+    - "대분류_소분류" 형태로 평탄화
+    - 실제 데이터는 2행 이후부터
+
+    Parameters:
+    -----------
+    data : list
+        xlwings에서 읽은 raw 데이터 (헤더 포함)
+    logger : logging.Logger, optional
+        로거 객체
+
+    Returns:
+    --------
+    pd.DataFrame
+        평탄화된 헤더를 가진 DataFrame
+    """
+    _logger = logger or logging.getLogger('coating_preprocessor.apc')
+
+    if not data or len(data) < 2:
+        _logger.warning("데이터가 비어있거나 행이 부족합니다.")
+        return pd.DataFrame()
+
+    row1 = data[0]  # 대분류 (1행)
+    row2 = data[1]  # 소분류 (2행)
+
+    # 멀티레벨 헤더 판별: 2행에 None이 아닌 값이 있고 1행과 다른 값이 존재하면 멀티레벨
+    row2_non_none = [v for v in row2 if v is not None]
+    row1_non_none = [v for v in row1 if v is not None]
+
+    is_multilevel = (
+        len(row2_non_none) > 0
+        and len(row1_non_none) > 0
+        and any(v is None for v in row1)  # 병합셀로 인한 None 존재
+    )
+
+    if not is_multilevel:
+        # 단일 헤더: 1행이 헤더, 2행부터 데이터
+        _logger.info("단일 레벨 헤더로 판단하여 그대로 반환합니다.")
+        df = pd.DataFrame(data[1:], columns=row1)
+        return df
+
+    _logger.info("멀티레벨 헤더 감지 - 평탄화 처리 시작")
+
+    # 1행(대분류)의 None을 이전 값으로 채움 (엑셀 병합셀 대응)
+    filled_row1 = []
+    prev_val = None
+    for val in row1:
+        if val is not None:
+            prev_val = val
+        filled_row1.append(prev_val)
+
+    # "대분류_소분류" 형태로 평탄화
+    flat_columns = []
+    for major, minor in zip(filled_row1, row2):
+        major_str = str(major).strip() if major is not None else ''
+        minor_str = str(minor).strip() if minor is not None else ''
+
+        if major_str and minor_str:
+            if major_str == minor_str:
+                flat_columns.append(major_str)
+            else:
+                flat_columns.append(f"{major_str}_{minor_str}")
+        elif major_str:
+            flat_columns.append(major_str)
+        elif minor_str:
+            flat_columns.append(minor_str)
+        else:
+            flat_columns.append(f"Unnamed_{len(flat_columns)}")
+
+    _logger.info(f"평탄화된 헤더 수: {len(flat_columns)}")
+    _logger.debug(f"평탄화된 헤더: {flat_columns}")
+
+    # 실제 데이터는 2행 이후부터
+    df = pd.DataFrame(data[2:], columns=flat_columns)
+
+    return df
+
+
 class APCPreprocessor:
     """APC 데이터 전처리 클래스"""
 
-    def __init__(self, config, logger: logging.Logger = None):
+    def __init__(self, config, logger: Optional[logging.Logger] = None):
         """
         Parameters:
         -----------
@@ -35,7 +122,7 @@ class APCPreprocessor:
         self.control_regions_df = None
         self.no_control_regions_df = None
 
-    def run(self, input_file: str, llspec_file: Optional[str] = None) -> pd.DataFrame:
+    def run(self, input_file: str, llspec_file: Optional[str] = None) -> Optional[pd.DataFrame]:
         """
         전체 APC 전처리 프로세스 실행
 
@@ -63,7 +150,7 @@ class APCPreprocessor:
         self.logger.info("[1차 전처리] 변경점 감지")
         self.changes_df, self.original_df = self.detect_parameter_changes(input_file)
 
-        if self.changes_df is None:
+        if self.changes_df is None or self.original_df is None:
             self.logger.warning("변경점이 없어 종료합니다.")
             return None
 
@@ -159,7 +246,7 @@ class APCPreprocessor:
         self,
         file_path: str,
         sheet_name: Optional[str] = None
-    ) -> Tuple[Optional[pd.DataFrame], pd.DataFrame]:
+    ) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
         1차 전처리: GV_GAP 및 PUMP RPM 값 변경 감지
 
@@ -746,35 +833,51 @@ class APCPreprocessor:
 
         # Excel 파일의 경우 멀티레벨 헤더 처리를 위해 xlwings 사용
         if file_ext in ['.xlsx', '.xls']:
-            app = xw.App(visible=False)
-            wb = None
-            try:
-                wb = xw.Book(llspec_file)
-                sheet = wb.sheets[0]
+            if HAS_XLWINGS:
+                app = xw.App(visible=False)
+                wb = None
+                try:
+                    wb = xw.Book(llspec_file)
+                    sheet = wb.sheets[0]
 
-                # 데이터 읽기
-                used_range = sheet.used_range
-                data = used_range.value
+                    used_range = sheet.used_range
+                    data = used_range.value
 
-                # 헤더 처리 (멀티레벨 헤더 가능성)
-                headers_row1 = data[0]
-                headers_row2 = data[1] if len(data) > 1 else None
+                    df = flatten_multilevel_header(data, logger=self.logger)
 
-                # DataFrame 생성
-                if headers_row2:
-                    # 멀티레벨 헤더 처리
-                    df = pd.DataFrame(data[2:], columns=headers_row2)
-                else:
-                    df = pd.DataFrame(data[1:], columns=headers_row1)
+                    if df.empty:
+                        self.logger.error("데이터가 비어있습니다.")
+                        return None
 
-                self.logger.info(f"Excel 파일 로드 완료 (xlwings)")
-            except Exception as e:
-                self.logger.error(f"Excel 파일 로드 오류: {e}", exc_info=True)
-                return None
-            finally:
-                if wb:
+                    self.logger.info(f"Excel 파일 로드 완료 (xlwings)")
+                except Exception as e:
+                    self.logger.error(f"Excel 파일 로드 오류: {e}", exc_info=True)
+                    return None
+                finally:
+                    if wb:
+                        wb.close()
+                    app.quit()
+            else:
+                try:
+                    from openpyxl import load_workbook
+                    wb = load_workbook(llspec_file, data_only=True)
+                    sheet = wb.worksheets[0]
+
+                    data = []
+                    for row in sheet.iter_rows(values_only=True):
+                        data.append(list(row))
                     wb.close()
-                app.quit()
+
+                    df = flatten_multilevel_header(data, logger=self.logger)
+
+                    if df.empty:
+                        self.logger.error("데이터가 비어있습니다.")
+                        return None
+
+                    self.logger.info(f"Excel 파일 로드 완료 (openpyxl)")
+                except Exception as e:
+                    self.logger.error(f"Excel 파일 로드 오류: {e}", exc_info=True)
+                    return None
         else:
             # Parquet/CSV 파일의 경우 utils.load_file() 사용
             try:
@@ -806,22 +909,32 @@ class APCPreprocessor:
             # UCL, TARGET, LCL 칼럼 찾기
             spec_cols = []
 
-            # 다양한 칼럼명 패턴 시도
-            col_patterns = {
-                'UCL': ['UCL', 'ucl', 'Upper Control Limit'],
-                'TARGET': ['TARGET', 'target', 'Target'],
-                'LCL': ['LCL', 'lcl', 'Lower Control Limit']
-            }
+            # 다양한 칼럼명 패턴 시도 (평탄화된 멀티레벨 헤더 대응)
+            # 예: 'L/L Spec_UCL', 'RPM_UCL' 등이 공존할 수 있음
+            # 'L/L' 포함 칼럼을 우선 매칭하고, 없으면 키워드만으로 fallback
+            ll_prefix = 'L/L'
+            spec_keywords = ['UCL', 'TARGET', 'LCL']
 
-            for spec_name, patterns in col_patterns.items():
-                found = False
-                for pattern in patterns:
-                    if pattern in df.columns:
-                        spec_cols.append(pattern)
-                        found = True
+            for spec_name in spec_keywords:
+                # 1차: 'L/L'과 키워드 모두 포함하는 칼럼 우선 탐색
+                matched_col = None
+                for col in df.columns:
+                    col_upper = str(col).upper()
+                    if ll_prefix in col_upper and spec_name in col_upper:
+                        matched_col = col
                         break
 
-                if not found:
+                # 2차: 'L/L' 없으면 키워드만으로 fallback (정확 일치 우선)
+                if matched_col is None:
+                    for col in df.columns:
+                        if str(col).upper() == spec_name:
+                            matched_col = col
+                            break
+
+                if matched_col is not None:
+                    spec_cols.append(matched_col)
+                    self.logger.info(f"{spec_name} 칼럼 매칭: '{matched_col}'")
+                else:
                     self.logger.warning(f"{spec_name} 칼럼을 찾을 수 없습니다.")
 
             if len(spec_cols) == 0:

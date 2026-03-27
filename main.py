@@ -17,17 +17,17 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 예시:
-  # Training 데이터 생성 (기본)
-  python main.py --mode training --apc data/raw/apc_data.xlsx --densitometer data/raw/densitometer_data.csv
+  # Training 데이터 생성 (기본 - 병합된 파일 사용)
+  python main.py --mode training
 
   # Test 데이터 생성
-  python main.py --mode test --apc data/raw/apc_test.xlsx --densitometer data/raw/densitometer_test.csv
+  python main.py --mode test
 
-  # 다중 파일 모드 (Training)
-  python main.py --mode training --apc-multiple data/raw/apc_*.xlsx --densitometer-multiple data/raw/densitometer_*.csv
+  # APC/밀도계 파일 직접 지정
+  python main.py --mode training --apc data/raw/apc_data.xlsx --densitometer data/raw/densitometer_data.csv
 
-  # 폴더 모드 (Test)
-  python main.py --mode test --folder data/raw/
+  # 다중 파일 병합만 수행
+  python main.py --merge --apc-multiple data/raw/apc_*.xlsx --densitometer-multiple data/raw/densitometer_*.csv
         """
     )
 
@@ -40,25 +40,32 @@ def main():
         help='데이터 생성 모드 (training: 학습 데이터, test: 테스트 데이터)'
     )
 
-    # 단일 파일 모드
+    # 단일 파일 모드 (기본값: 병합된 파일)
     parser.add_argument(
         '--apc',
         type=str,
-        help='APC 데이터 파일 경로'
+        default='outputs/temp_merged_apc.parquet',
+        help='APC 데이터 파일 경로 (기본: outputs/temp_merged_apc.parquet)'
     )
     parser.add_argument(
         '--densitometer',
         type=str,
-        help='밀도계 데이터 파일 경로'
+        default='outputs/temp_merged_densitometer.parquet',
+        help='밀도계 데이터 파일 경로 (기본: outputs/temp_merged_densitometer.parquet)'
     )
     parser.add_argument(
         '--llspec',
         type=str,
-        default=None,
-        help='LLspec 데이터 파일 경로 (선택)'
+        default='outputs/temp_merged_llspec.parquet',
+        help='LLspec 데이터 파일 경로 (기본: outputs/temp_merged_llspec.parquet)'
     )
 
-    # 다중 파일 모드
+    # 다중 파일 병합 모드
+    parser.add_argument(
+        '--merge',
+        action='store_true',
+        help='다중 파일 병합만 수행 (전처리 파이프라인은 실행하지 않음)'
+    )
     parser.add_argument(
         '--apc-multiple',
         nargs='+',
@@ -76,31 +83,6 @@ def main():
         help='LLspec 데이터 파일 경로 리스트 (선택)'
     )
 
-    # 폴더 모드
-    parser.add_argument(
-        '--folder',
-        type=str,
-        help='데이터 폴더 경로 (자동 검색)'
-    )
-    parser.add_argument(
-        '--apc-pattern',
-        type=str,
-        default='apc*.xlsx',
-        help='APC 파일 패턴 (폴더 모드 사용 시)'
-    )
-    parser.add_argument(
-        '--densitometer-pattern',
-        type=str,
-        default='densitometer*.csv',
-        help='밀도계 파일 패턴 (폴더 모드 사용 시)'
-    )
-    parser.add_argument(
-        '--llspec-pattern',
-        type=str,
-        default='llspec*.xlsx',
-        help='LLspec 파일 패턴 (폴더 모드 사용 시)'
-    )
-
     # 기타 옵션
     parser.add_argument(
         '--no-visualize',
@@ -111,6 +93,11 @@ def main():
         '--no-model-data',
         action='store_true',
         help='모델 데이터 생성 비활성화'
+    )
+    parser.add_argument(
+        '--no-offline-rl-data',
+        action='store_true',
+        help='Offline RL MDP 데이터 생성 비활성화'
     )
 
     args = parser.parse_args()
@@ -127,49 +114,55 @@ def main():
     # 실행 모드 결정
     visualize = not args.no_visualize
     prepare_model_data = not args.no_model_data
+    prepare_offline_rl_data = not args.no_offline_rl_data
 
     # ===================================================================
     # 실행 모드 선택
     # ===================================================================
 
-    if args.folder:
-        # 옵션 3: 폴더 자동 검색 모드
-        pipeline.run_from_folder(
-            folder_path=args.folder,
-            apc_pattern=args.apc_pattern,
-            densitometer_pattern=args.densitometer_pattern,
-            llspec_pattern=args.llspec_pattern,
-            visualize=visualize,
-            prepare_model_data=prepare_model_data,
-            mode=args.mode
-        )
+    if args.merge:
+        # ====== 직접 지정 영역 (코드에서 파일 경로를 직접 수정) ======
+        apc_files = [
+            # "data/raw/apc_file1.xlsx",
+            # "data/raw/apc_file2.xlsx",
+        ]
+        densitometer_files = [
+            # "data/raw/densitometer_file1.csv",
+            # "data/raw/densitometer_file2.csv",
+        ]
+        llspec_files = [
+            # "data/raw/llspec_file1.xlsx",
+            # "data/raw/llspec_file2.xlsx",
+        ]
+        # ==============================================================
 
-    elif args.apc_multiple and args.densitometer_multiple:
-        # 옵션 2: 다중 파일 모드
-        pipeline.run_multiple_files(
-            apc_files=args.apc_multiple,
-            densitometer_files=args.densitometer_multiple,
-            llspec_files=args.llspec_multiple,
-            visualize=visualize,
-            prepare_model_data=prepare_model_data,
-            mode=args.mode
-        )
+        # CLI 인자가 있으면 CLI 인자 우선 사용
+        apc_files = args.apc_multiple or apc_files
+        densitometer_files = args.densitometer_multiple or densitometer_files
+        llspec_files = args.llspec_multiple or llspec_files or None
 
-    elif args.apc and args.densitometer:
-        # 옵션 1: 단일 파일 모드
+        if apc_files and densitometer_files:
+            pipeline.merge_multiple_files(
+                apc_files=apc_files,
+                densitometer_files=densitometer_files,
+                llspec_files=llspec_files
+            )
+        else:
+            pipeline.logger.error("apc_files와 densitometer_files를 지정해주세요.")
+            parser.print_help()
+            return
+
+    else:
+        # 전처리 실행 (기본: 병합된 parquet 파일 사용)
         pipeline.run_single_file(
             apc_file=args.apc,
             densitometer_file=args.densitometer,
             llspec_file=args.llspec,
             visualize=visualize,
             prepare_model_data=prepare_model_data,
+            prepare_offline_rl_data=prepare_offline_rl_data,
             mode=args.mode
         )
-
-    else:
-        pipeline.logger.error("입력 파일을 지정해주세요. --help로 사용법을 확인하세요.")
-        parser.print_help()
-        return
 
     # 결과 확인
     results = pipeline.get_results()

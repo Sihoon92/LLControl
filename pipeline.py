@@ -8,13 +8,14 @@ import os
 import logging
 
 from config import PreprocessConfig
-from utils import save_to_excel, ensure_directory, setup_logger, get_files_from_folder
+from utils import save_to_excel, _save_to_parquet, ensure_directory, setup_logger
 # 아래 모듈들은 사용자가 구현해야 함 (문맥상 import 경로 유지)
 from preprocessor.apc_preprocessor import APCPreprocessor
 from preprocessor.densitometer_preprocessor import DensitometerPreprocessor
 from preprocessor.zone_analyzer import ZoneAnalyzer
 from preprocessor.data_merger import DataMerger
 from preprocessor.model_data_preparator import ModelDataPreparator
+from preprocessor.offline_rl_data_preparator import OfflineRLDataPreparator
 
 class CoatingPreprocessPipeline:
     """
@@ -22,7 +23,7 @@ class CoatingPreprocessPipeline:
     전체 전처리 과정을 통합 관리하는 메인 클래스
     """
 
-    def __init__(self, config: PreprocessConfig = None, logger: logging.Logger = None):
+    def __init__(self, config: Optional[PreprocessConfig] = None, logger: Optional[logging.Logger] = None):
         """
         Parameters:
         -----------
@@ -52,6 +53,7 @@ class CoatingPreprocessPipeline:
         self.zone_analyzer = ZoneAnalyzer(self.config, logger=self.logger)  # 파라미터 명시적 지정
         self.data_merger = DataMerger(self.logger)
         self.model_data_preparator = ModelDataPreparator(self.config, self.logger)
+        self.offline_rl_preparator = OfflineRLDataPreparator(self.config, self.logger)
 
         # 결과 저장용
         self.results = {}
@@ -67,6 +69,7 @@ class CoatingPreprocessPipeline:
         llspec_file: Optional[str] = None,
         visualize: bool = True,
         prepare_model_data: bool = True,
+        prepare_offline_rl_data: bool = True,
         mode: str = 'training'
     ):
         """
@@ -136,17 +139,26 @@ class CoatingPreprocessPipeline:
 
         # Step 3: Zone 분석
         self.logger.info("[Step 3] Zone별 분석")
-        zone_results = self.zone_analyzer.run(
+        zone_analysis_result = self.zone_analyzer.run(
             densitometer_data=extracted_data,
             meaningful_changes=meaningful_changes,
             visualize=visualize
         )
 
-        if zone_results is None or zone_results.empty:
+        # ZoneAnalyzer.run()은 (zone_results, zone_statistics) 튜플 반환
+        if zone_analysis_result is None:
             self.logger.error("Zone 분석 실패")
             return
 
+        zone_results, zone_statistics = zone_analysis_result
+
+        if zone_results is None or zone_results.empty:
+            self.logger.error("Zone 분석 결과가 비어있습니다")
+            return
+
         self.results['zone_analysis'] = zone_results
+        if zone_statistics is not None:
+            self.results['zone_statistics'] = zone_statistics
 
         # Step 4: 모델 학습용 데이터 준비 (옵션)
         if prepare_model_data:
@@ -174,6 +186,22 @@ class CoatingPreprocessPipeline:
             else:
                 self.logger.warning(f"  ⚠ 모델 {mode.upper()} 데이터 준비 실패")
 
+        # Step 5: Offline RL용 MDP 데이터 준비 (옵션)
+        if prepare_offline_rl_data:
+            self.logger.info(f"[Step 5] Offline RL {mode.upper()} 데이터 준비")
+
+            offline_rl_data = self.offline_rl_preparator.run(
+                zone_analysis_results=zone_results,
+                meaningful_changes=meaningful_changes,
+                mode=mode
+            )
+
+            if offline_rl_data is not None and not offline_rl_data.empty:
+                self.results[f'offline_rl_{mode}_data'] = offline_rl_data
+                self.logger.info(f"  ✓ Offline RL {mode.upper()} 데이터 준비 완료: {len(offline_rl_data)} MDP 튜플")
+            else:
+                self.logger.warning(f"  ⚠ Offline RL {mode.upper()} 데이터 준비 실패")
+
         # 최종 요약
         self.logger.info("="*80)
         self.logger.info("전처리 파이프라인 완료")
@@ -185,21 +213,21 @@ class CoatingPreprocessPipeline:
         if prepare_model_data and f'model_{mode}_data' in self.results:
             self.logger.info(f"모델 {mode.upper()} 데이터: {len(self.results[f'model_{mode}_data'])} 샘플")
 
+        if prepare_offline_rl_data and f'offline_rl_{mode}_data' in self.results:
+            self.logger.info(f"Offline RL {mode.upper()} 데이터: {len(self.results[f'offline_rl_{mode}_data'])} MDP 튜플")
+
         self.logger.info(f"결과 저장 위치: {self.config.OUTPUT_DIR}")
         self.logger.info(f"로그 파일: {os.path.join(self.config.LOG_DIR, self.config.LOG_FILE)}")
         self.logger.info("="*80)
 
-    def run_multiple_files(
+    def merge_multiple_files(
         self,
         apc_files: List[str],
         densitometer_files: List[str],
-        llspec_files: Optional[List[str]] = None,
-        visualize: bool = True,
-        prepare_model_data: bool = True,
-        mode: str = 'training'
+        llspec_files: Optional[List[str]] = None
     ):
         """
-        여러 파일을 통합하여 전처리 실행
+        여러 파일을 하나의 임시 통합 파일로 병합
 
         Parameters:
         -----------
@@ -209,15 +237,9 @@ class CoatingPreprocessPipeline:
             밀도계 파일 경로 리스트
         llspec_files : List[str], optional
             LLspec 파일 경로 리스트
-        visualize : bool
-            시각화 여부
-        prepare_model_data : bool
-            모델 데이터 준비 여부
-        mode : str
-            데이터 모드 ('training' 또는 'test'), 기본값: 'training'
         """
         self.logger.info("="*80)
-        self.logger.info(f"전처리 파이프라인 시작 (다중 파일 모드 - {mode.upper()})")
+        self.logger.info("데이터 파일 통합 시작")
         self.logger.info("="*80)
         self.logger.info(f"APC 파일 수: {len(apc_files)}")
         self.logger.info(f"밀도계 파일 수: {len(densitometer_files)}")
@@ -234,9 +256,9 @@ class CoatingPreprocessPipeline:
             self.logger.error("APC 파일 통합 실패")
             return
 
-        # 통합된 APC 파일 임시 저장
-        temp_apc_file = os.path.join(self.config.OUTPUT_DIR, 'temp_merged_apc.xlsx')
-        save_to_excel(merged_apc, temp_apc_file, 'Merged_APC', self.logger)
+        # 통합된 APC 파일 저장 (parquet)
+        temp_apc_file = os.path.join(self.config.OUTPUT_DIR, 'temp_merged_apc.parquet')
+        _save_to_parquet(merged_apc, temp_apc_file, logger=self.logger)
 
         # 밀도계 파일 통합
         merged_densitometer = self.data_merger.merge_densitometer_files(densitometer_files)
@@ -244,93 +266,27 @@ class CoatingPreprocessPipeline:
             self.logger.error("밀도계 파일 통합 실패")
             return
 
-        # 통합된 밀도계 파일 임시 저장
+        # 통합된 밀도계 파일 저장 (parquet)
         temp_densitometer_file = os.path.join(
             self.config.OUTPUT_DIR,
-            'temp_merged_densitometer.xlsx'
+            'temp_merged_densitometer.parquet'
         )
-        save_to_excel(merged_densitometer, temp_densitometer_file, 'Merged_Densitometer', self.logger)
+        _save_to_parquet(merged_densitometer, temp_densitometer_file, logger=self.logger)
 
         # LLspec 파일 통합 (있는 경우)
-        temp_llspec_file = None
         if llspec_files:
             merged_llspec = self.data_merger.merge_llspec_files(llspec_files)
             if merged_llspec is not None:
                 temp_llspec_file = os.path.join(
                     self.config.OUTPUT_DIR,
-                    'temp_merged_llspec.xlsx'
+                    'temp_merged_llspec.parquet'
                 )
-                save_to_excel(merged_llspec, temp_llspec_file, 'Merged_LLspec', self.logger)
+                _save_to_parquet(merged_llspec, temp_llspec_file, logger=self.logger)
 
-        # 단일 파일 모드로 전처리 실행 (mode 전달)
-        self.run_single_file(
-            apc_file=temp_apc_file,
-            densitometer_file=temp_densitometer_file,
-            llspec_file=temp_llspec_file,
-            visualize=visualize,
-            prepare_model_data=prepare_model_data,
-            mode=mode  # mode 전달
-        )
-
-    def run_from_folder(
-        self,
-        folder_path: str,
-        apc_pattern: str = 'apc*.xlsx',
-        densitometer_pattern: str = 'densitometer*.xlsx',
-        llspec_pattern: str = 'llspec*.xlsx',
-        visualize: bool = True,
-        prepare_model_data: bool = True,
-        mode: str = 'training'
-    ):
-        """
-        폴더에서 패턴에 맞는 파일들을 자동으로 찾아서 전처리 실행
-
-        Parameters:
-        -----------
-        folder_path : str
-            데이터 폴더 경로
-        apc_pattern : str
-            APC 파일 패턴
-        densitometer_pattern : str
-            밀도계 파일 패턴
-        llspec_pattern : str
-            LLspec 파일 패턴
-        visualize : bool
-            시각화 여부
-        prepare_model_data : bool
-            모델 데이터 준비 여부
-        mode : str
-            데이터 모드 ('training' 또는 'test'), 기본값: 'training'
-        """
         self.logger.info("="*80)
-        self.logger.info(f"전처리 파이프라인 시작 (폴더 모드 - {mode.upper()})")
+        self.logger.info("데이터 파일 통합 완료")
+        self.logger.info(f"결과 저장 위치: {self.config.OUTPUT_DIR}")
         self.logger.info("="*80)
-        self.logger.info(f"폴더 경로: {folder_path}")
-        self.logger.info("="*80)
-
-        # 파일 검색
-        apc_files = get_files_from_folder(folder_path, apc_pattern, self.logger)
-        densitometer_files = get_files_from_folder(folder_path, densitometer_pattern, self.logger)
-        llspec_files = get_files_from_folder(folder_path, llspec_pattern, self.logger)
-
-        self.logger.info(f"발견된 파일:")
-        self.logger.info(f"  APC: {len(apc_files)}개")
-        self.logger.info(f"  밀도계: {len(densitometer_files)}개")
-        self.logger.info(f"  LLspec: {len(llspec_files)}개")
-
-        if not apc_files or not densitometer_files:
-            self.logger.error("필수 파일이 없습니다.")
-            return
-
-        # 다중 파일 모드로 실행 (mode 전달)
-        self.run_multiple_files(
-            apc_files=apc_files,
-            densitometer_files=densitometer_files,
-            llspec_files=llspec_files if llspec_files else None,
-            visualize=visualize,
-            prepare_model_data=prepare_model_data,
-            mode=mode  # mode 전달
-        )
 
     def get_results(self):
         """전처리 결과 반환"""

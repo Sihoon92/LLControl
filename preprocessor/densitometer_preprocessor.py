@@ -16,7 +16,7 @@ import utils
 class DensitometerPreprocessor:
     """밀도계 데이터 전처리 클래스"""
 
-    def __init__(self, config, logger: logging.Logger = None):
+    def __init__(self, config, logger: Optional[logging.Logger] = None):
         """
         Parameters:
         -----------
@@ -27,14 +27,14 @@ class DensitometerPreprocessor:
         """
         self.config = config
         self.logger = logger or logging.getLogger('coating_preprocessor.densitometer')
-        self.extracted_data = None
+        self.extracted_data: Optional[pd.DataFrame] = None
 
     def run(
         self,
         control_regions_file: str,
         no_control_regions_file: str,
         raw_data_file: str
-    ) -> pd.DataFrame:
+    ) -> Optional[pd.DataFrame]:
         """
         밀도계 데이터 추출 실행 (제어 구간 + 비제어 구간)
 
@@ -97,13 +97,15 @@ class DensitometerPreprocessor:
 
         self.logger.info(f"[통합 데이터] 저장 중...")
         try:
-            if output_file.endswith('.csv'):
+            if output_file.endswith('.parquet'):
+                self.extracted_data.to_parquet(output_file, index=False)
+            elif output_file.endswith('.csv'):
                 self.extracted_data.to_csv(output_file, index=False, encoding='utf-8-sig')
             elif output_file.endswith(('.xlsx', '.xls')):
                 self.extracted_data.to_excel(output_file, index=False)
             else:
-                output_file = output_file + '.xlsx'
-                self.extracted_data.to_excel(output_file, index=False)
+                output_file = output_file + '.parquet'
+                self.extracted_data.to_parquet(output_file, index=False)
 
             self.logger.info(f"✓ '{output_file}' 파일로 저장 완료")
 
@@ -208,20 +210,16 @@ class DensitometerPreprocessor:
         self.logger.info(f"    ✓ {len(value_columns)}개 Value 칼럼 발견")
         self.logger.debug(f"    첫 칼럼: {value_columns[0]}, 마지막 칼럼: {value_columns[-1]}")
 
-        # 4. 중복 행 제거
-        self.logger.info(f"  [4단계] 중복 행 제거 중...")
-        raw_df = self.remove_duplicate_rows(raw_df, value_columns)
-
-        # 5. 시간 칼럼 파싱
-        self.logger.info(f"  [5단계] 시간 데이터 파싱 중...")
+        # 4. 시간 칼럼 파싱
+        self.logger.info(f"  [4단계] 시간 데이터 파싱 중...")
 
         # raw data의 시간을 datetime으로 변환
         raw_df['datetime'] = raw_df[time_col].apply(self._parse_time)
         self.logger.info(f"    ✓ 시간 데이터 변환 완료")
         self.logger.info(f"    시간 범위: {raw_df['datetime'].min()} ~ {raw_df['datetime'].max()}")
 
-        # 6. 각 구간에 대해 데이터 추출
-        self.logger.info(f"  [6단계] 구간별 데이터 추출 중...")
+        # 5. 각 구간에 대해 데이터 추출
+        self.logger.info(f"  [5단계] 구간별 데이터 추출 중...")
 
         extracted_data_list = []
 
@@ -300,89 +298,28 @@ class DensitometerPreprocessor:
             after_count = (group_data['before/after'] == 'after').sum()
             self.logger.info(f"    ✓ Group {group_id}: {len(group_data)} 행 추출 (before: {before_count}, after: {after_count})")
 
-        # 7. 모든 데이터 합치기
+        # 6. 모든 데이터 합치기
         if not extracted_data_list:
             self.logger.warning("    ✗ 추출된 데이터가 없습니다.")
             return None
 
-        self.logger.info(f"  [7단계] 데이터 통합 중...")
+        self.logger.info(f"  [6단계] 데이터 통합 중...")
         final_df = pd.concat(extracted_data_list, ignore_index=True)
         self.logger.info(f"    ✓ 총 {len(final_df)} 행 데이터 통합 완료")
 
         return final_df
 
-    def remove_duplicate_rows(
-        self,
-        df: pd.DataFrame,
-        value_columns: List[str]
-    ) -> pd.DataFrame:
+    def _parse_time(self, time_str):
         """
-        연속되는 timestamp에서 모든 value 칼럼이 중복되는 행 제거
-        (첫 번째 행은 유지하고 이후 연속 중복 행들만 삭제)
-
-        Parameters:
-        -----------
-        df : pd.DataFrame
-            밀도계 raw data
-        value_columns : list
-            밀도계 value 칼럼 리스트
-
-        Returns:
-        --------
-        pd.DataFrame
-            중복 제거된 데이터프레임
-        """
-        self.logger.debug("    중복 행 제거 시작")
-        original_len = len(df)
-
-        # 첫 번째 행은 항상 유지
-        rows_to_keep = [0]
-
-        # 이전 행과 현재 행의 value 칼럼들을 비교
-        for idx in range(1, len(df)):
-            current_values = df.iloc[idx][value_columns].values
-            previous_values = df.iloc[idx-1][value_columns].values
-
-            # 모든 value가 동일한지 확인
-            # NaN 처리: NaN끼리는 동일하다고 판단
-            is_duplicate = True
-            for curr, prev in zip(current_values, previous_values):
-                # 둘 다 NaN이면 동일
-                if pd.isna(curr) and pd.isna(prev):
-                    continue
-                # 하나만 NaN이거나 값이 다르면 다른 행
-                if pd.isna(curr) != pd.isna(prev) or curr != prev:
-                    is_duplicate = False
-                    break
-
-            # 중복이 아니면 유지
-            if not is_duplicate:
-                rows_to_keep.append(idx)
-
-        # 중복 제거된 데이터프레임 생성
-        df_cleaned = df.iloc[rows_to_keep].reset_index(drop=True)
-
-        removed_count = original_len - len(df_cleaned)
-        self.logger.debug(f"    제거된 중복 행 수: {removed_count} ({removed_count/original_len*100:.2f}%)")
-        self.logger.debug(f"    최종 데이터 행 수: {len(df_cleaned)}")
-
-        return df_cleaned
-
-    def _parse_time(self, time_str, reference_date='2024-01-01'):
-        """
-        HH:MM:SS 형식의 시간 문자열을 datetime 객체로 변환
+        시간 문자열을 datetime 객체로 변환
 
         Parameters:
         -----------
         time_str : str
-            시간 문자열 (HH:MM:SS)
-        reference_date : str
-            기준 날짜 (시간만 있을 경우 날짜를 추가하기 위함)
+            시간 문자열 (YYYY-MM-DD HH:MM:SS)
 
         Returns:
         --------
         datetime
         """
-        if isinstance(time_str, str):
-            return pd.to_datetime(f"{reference_date} {time_str}")
-        return time_str
+        return pd.to_datetime(time_str)

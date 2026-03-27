@@ -8,7 +8,7 @@ import utils
 class ModelDataPreparator:
     """모델 학습용 데이터 준비 클래스"""
 
-    def __init__(self, config, logger: logging.Logger = None):
+    def __init__(self, config, logger: Optional[logging.Logger] = None):
         """
         Parameters:
         -----------
@@ -32,9 +32,9 @@ class ModelDataPreparator:
         self,
         zone_analysis_file: str,
         meaningful_changes_file: str,
-        output_file: str = None,
+        output_file: Optional[str] = None,
         mode: str = 'training'
-    ) -> pd.DataFrame:
+    ) -> Optional[pd.DataFrame]:
         """
         모델 학습용 데이터 준비 실행
 
@@ -467,21 +467,8 @@ class ModelDataPreparator:
             return None
 
     def _save_data(self, df: pd.DataFrame, output_path: str):
-        """데이터 저장"""
-        try:
-            if output_path.endswith('.csv'):
-                df.to_csv(output_path, index=False, encoding='utf-8-sig')
-            elif output_path.endswith(('.xlsx', '.xls')):
-                df.to_excel(output_path, index=False)
-            else:
-                output_path = output_path + '.xlsx'
-                df.to_excel(output_path, index=False)
-
-            self.logger.info(f"  ✓ 데이터 저장: {output_path}")
-
-        except Exception as e:
-            self.logger.error(f"  ✗ 저장 오류: {e}")
-            raise
+        """데이터 저장 (엑셀 + 파케이 동시 저장)"""
+        utils.save_to_excel(df, output_path, format='both', logger=self.logger)
 
     def inverse_clr_transform(
         self,
